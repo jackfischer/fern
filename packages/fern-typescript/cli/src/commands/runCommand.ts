@@ -17,10 +17,10 @@ export async function runCommand({
     if (config.output == null) {
         throw new Error("Output directory is not specified.");
     }
-    const {
-        output: { path: baseOutputPath },
-    } = config;
-    const outputPath = path.join(baseOutputPath, command.key);
+    // const {
+    //     output: { path: baseOutputPath },
+    // } = config;
+    const outputPath = path.join("/home/fern", command.key);
 
     const volume = new Volume();
 
@@ -36,27 +36,34 @@ export async function runCommand({
 
     await writeVolumeToDisk(volume, outputPath);
 
-    async function runNpmCommandInOutputDirectory(...args: string[]): Promise<void> {
-        const command = execa("npm", args, {
+    async function runCommandInOutputDirectory(command: string, ...args: string[]): Promise<void> {
+        const commandInstance = execa(command, args, {
             cwd: outputPath,
         });
-        command.stdout?.pipe(process.stdout);
-        command.stderr?.pipe(process.stderr);
-        await command;
+        commandInstance.stdout?.pipe(process.stdout);
+        commandInstance.stderr?.pipe(process.stderr);
+        await commandInstance;
     }
+
+    async function runYarnCommandInOutputDirectory(...args: string[]): Promise<void> {
+        return runCommandInOutputDirectory("yarn", ...args);
+    }
+
+    await runYarnCommandInOutputDirectory("set", "version", "berry");
+    await runYarnCommandInOutputDirectory("config", "set", "enableGlobalCache", "true");
+    await runYarnCommandInOutputDirectory("install");
 
     if (config.publish != null) {
         const { registryUrl, token } = config.publish.registries.npm;
-        await runNpmCommandInOutputDirectory("config", "set", `${scopeWithAtSign}:registry`, registryUrl);
+        await runYarnCommandInOutputDirectory("config", "set", `${scopeWithAtSign}:registry`, registryUrl);
         const parsedRegistryUrl = new URL(registryUrl);
-        await runNpmCommandInOutputDirectory(
+        await runYarnCommandInOutputDirectory(
             "config",
             "set",
             `//${path.join(parsedRegistryUrl.hostname, parsedRegistryUrl.pathname)}:_authToken`,
             token
         );
-        await runNpmCommandInOutputDirectory("install", "--no-save");
-        await runNpmCommandInOutputDirectory("run", BUILD_PROJECT_SCRIPT_NAME);
-        await runNpmCommandInOutputDirectory("publish");
+        await runYarnCommandInOutputDirectory("run", BUILD_PROJECT_SCRIPT_NAME);
+        await runYarnCommandInOutputDirectory("publish");
     }
 }
