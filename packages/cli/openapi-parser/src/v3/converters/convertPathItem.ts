@@ -59,7 +59,7 @@ function convertOperation(
     operation: OpenAPIV3.OperationObject,
     document: OpenAPIV3.Document
 ): Omit<Endpoint, "path" | "method"> {
-    const convertedParameters = convertParameters(operation.parameters ?? []);
+    const convertedParameters = convertParameters(operation.parameters ?? [], document);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const requestName = (operation as any)["x-request-name"] as string | undefined;
     const convertedRequest =

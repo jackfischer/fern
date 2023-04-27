@@ -82,7 +82,7 @@ function resolveSchema(schema: OpenAPIV3.ReferenceObject, document: OpenAPIV3.Do
         throw new Error(`Failed to resolve schema reference because of unsupported prefix: ${schema.$ref}`);
     }
     const schemaId = getSchemaIdFromReference(schema);
-    const resolvedSchema = document.components?.schemas?.[schemaId];
+    const resolvedSchema = document.components?.schemas?.[schemaId.schema];
     if (resolvedSchema == null) {
         throw new Error(`Failed to resolve schema reference because missing: ${schema.$ref}`);
     }
@@ -90,7 +90,7 @@ function resolveSchema(schema: OpenAPIV3.ReferenceObject, document: OpenAPIV3.Do
         return resolveSchema(resolvedSchema, document);
     }
     return {
-        id: schemaId,
+        id: schemaId.schema,
         schema: resolvedSchema,
     };
 }

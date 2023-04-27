@@ -10,7 +10,8 @@ export interface ConvertedParameters {
 }
 
 export function convertParameters(
-    parameters: (OpenAPIV3.ReferenceObject | OpenAPIV3.ParameterObject)[]
+    parameters: (OpenAPIV3.ReferenceObject | OpenAPIV3.ParameterObject)[],
+    document: OpenAPIV3.Document
 ): ConvertedParameters {
     const convertedParameters: ConvertedParameters = {
         pathParameters: [],
@@ -18,35 +19,65 @@ export function convertParameters(
         headers: [],
     };
     for (const parameter of parameters) {
-        if (isReferenceObject(parameter)) {
-            throw new Error(`Converting referenced parameters is unsupported: ${JSON.stringify(parameter)}`);
+        const resolvedParameter = isReferenceObject(parameter)
+            ? resolveParameterReference(parameter, document)
+            : parameter;
+
+        if (resolvedParameter == null) {
+            throw new Error(`Failed to resolve parameter ${JSON.stringify(parameter)}`);
         }
 
-        const isRequired = parameter.required ?? false;
+        const isRequired = resolvedParameter.required ?? false;
         const schema =
-            parameter.schema != null
-                ? convertSchema(parameter.schema, !isRequired)
+            resolvedParameter.schema != null
+                ? convertSchema(resolvedParameter.schema, !isRequired)
                 : isRequired
-                ? Schema.primitive({ schema: PrimitiveSchemaValue.string(), description: parameter.description })
+                ? Schema.primitive({
+                      schema: PrimitiveSchemaValue.string(),
+                      description: resolvedParameter.description,
+                  })
                 : Schema.optional({
                       value: Schema.primitive({ schema: PrimitiveSchemaValue.string(), description: undefined }),
-                      description: parameter.description,
+                      description: resolvedParameter.description,
                   });
 
         const convertedParameter = {
-            name: parameter.name,
+            name: resolvedParameter.name,
             schema,
             description: undefined,
         };
-        if (parameter.in === "query") {
+        if (resolvedParameter.in === "query") {
             convertedParameters.queryParameters.push(convertedParameter);
-        } else if (parameter.in === "path") {
+        } else if (resolvedParameter.in === "path") {
             convertedParameters.pathParameters.push(convertedParameter);
-        } else if (parameter.in === "header") {
+        } else if (resolvedParameter.in === "header") {
             convertedParameters.headers.push(convertedParameter);
         } else {
             throw new Error(`Doesn't support converting this path parameters: ${JSON.stringify(parameter)}`);
         }
     }
     return convertedParameters;
+}
+
+const PARAMETER_REFERENCE_PREFIX = "#/components/parameters/";
+
+function resolveParameterReference(
+    parameter: OpenAPIV3.ReferenceObject,
+    document: OpenAPIV3.Document
+): OpenAPIV3.ParameterObject | undefined {
+    if (document.components == null || document.components.parameters == null) {
+        return undefined;
+    }
+    if (!parameter.$ref.startsWith(PARAMETER_REFERENCE_PREFIX)) {
+        return undefined;
+    }
+    const parameterKey = parameter.$ref.substring(PARAMETER_REFERENCE_PREFIX.length);
+    const resolvedParameter = document.components.parameters[parameterKey];
+    if (resolvedParameter == null) {
+        return undefined;
+    }
+    if (isReferenceObject(resolvedParameter)) {
+        return resolveParameterReference(resolvedParameter, document);
+    }
+    return resolvedParameter;
 }

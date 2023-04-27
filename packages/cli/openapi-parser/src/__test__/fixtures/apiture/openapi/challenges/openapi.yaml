@@ -1,0 +1,550 @@
+openapi: 3.1.0
+
+info:
+  title: Challenges
+  description: >-
+    The Challenges API supports challenging banking users to verify their identity when performing
+    other API operations.
+
+
+    This API supports _challenges_ when the financial institution requires the user to prove their
+    identity though a secondary challenge _factor_, such as entering a code sent to them via SMS (text message),
+    email, voice call, or by answering security questions.
+    User may have has one or more _channels_  associated with each factor, such as a multiple phone numbers or e-mail addresses.
+    The financial institution may require a challenge before certain actions that warrant extra
+    validation, such as making transfers to an external institution, updating the customer's mailing address, or
+    ordering replacement debit cards.
+
+
+    An API operation may return a 401 response with a `challengeRequired` problem type name
+    to indicate a challenge is required for that operation. (The [problem
+    response's](#schema-problemResponse) `type` is the URI
+    [`https://api.apiture.com/errors/challengeRequired/v1.0.0/`](https://production.api.apiture.com/errors/challengeRequired/v1.0.0/).
+    The actual version number `v1.0.0` may change, although the problem `type` URL always starts with
+    `https://api.apiture.com/errors/challengeRequired/`.) For
+    `challengeRequired`, the `attributes` in the [`apiProblem`](#schema-apiProblem) response
+    lists the challenges that the client may choose from as described in the
+    [`requiredIdentityChallenge`](#schema-requiredIdentityChallenge) schema.
+    The user must complete one of the offered challenges.
+
+
+    Each challenge contains a [`challengeFactor`](#schema-challengeFactor)
+    which identifies how the user receives and completes the challenge. This object has
+    a [`type`](#schema-challengeFactorType) which describes the factor used to complete the
+    challenge and optional string `labels`
+    which describe the channel(s) through which the user can complete the challenge.
+    For `sms` and `voice` factors, the label is the last four digits of a phone number. For `email`
+    challenges, the label is a masked email address. For `securityQuestions`, the
+    `challengeFactor` includes a prompt for each of the user's security questions, and does not
+    use the `labels`.
+
+
+    The user selects their preferred channel from those available, and the client then starts that
+    challenge flow via [the `startIdentityChallenge` operation](#op-startIdentityChallenge). In
+    response to that operation, the service will send an _one-time passcode_ of several digits to the user via
+    the corresponding channel for the `sms`, `email`, `voice`, `authenticatorToken` challenge
+    factors. The start operation is required to activate the challenge, even if the service does not have to
+    send information to the user, such as with `securityQuestions`.
+
+
+    The user enters the challenge response, such as the _one-time passcode_ that was sent to them or the answers
+    to their security questions, in the client. Then the client completes the challenge by [verifying the
+    user's challenge response](#op-verifyIdentityChallenge).
+
+
+    The system verifies the submitted challenge response(s) and, if valid, returns a token that the client
+    must pass via the `Challenge` request header (in conjunction with the existing `Authorization` header)
+    when it retries the operation.
+
+
+    For example, if the user chose to complete the following `sms` challenge factor:
+
+    `{ "type": "sms", "id": "15488eb31d2aef258d59", "labels": [ "3774" ] }`
+
+      1. The client will [start that challenge](#op-startIdentityChallenge).
+      1. The system sends the one-time passcode such as `987303` via SMS text message to their phone ending in 3774.
+      1. The user enters that one-time passcode `987303` in the client application.
+      1. The client application submits the one-time passcode response and the corresponding challenge `id`
+         (`15488eb31d2aef258d59`) and `factor` (`sms`) and `responses` using the
+         [`verifyIdentityChallenge`](#op-verifyIdentityChallenge) operation.
+
+    The `verifyIdentityChallenge` response includes a `result`. A result of `failed` means the verification failed. A
+    result of `locked` means the user has failed too many verification attempts and the system has locked them
+    out. The response also include an `allows` object which indicate if the user can submit new response,
+    restart the factor (i.e. resend the one-time passcode), or try the operation again to get a new challenge.
+
+
+    A result of `verified` means the user's response matched the expected response. A response with a verified
+    result also includes a `challengeToken` value. The client must send this in the `Challenge` request header in addition to the
+    `Authorization` header when retrying the operation.
+
+
+    For example, if the result from verifying the response contains `{ ... "result": "verified",
+    "challengeToken": "91a2a7724d6e82f5cd73", ... }` and their existing bearer token is
+    `eyJraWQi...VVb1pH9bcBbg`, then the client should send the request headers:
+
+      * `Authentication: Bearer eyJraWQi...VVb1pH9bcBbg`
+      * `Challenge: 91a2a7724d6e82f5cd73`
+
+    when retrying the operation.
+  version: 0.2.1
+  contact:
+    name: Apiture
+    url: https://developer.apiture.com/help/support/
+    email: api@apiture.com
+  termsOfService: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+  license:
+    name: Apiture API License
+    url: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+x-apiture-namespace: bankingChallenges
+
+servers:
+  - url: /banking/challenges
+
+tags:
+  - name: Challenges
+    description: Challenges
+
+paths:
+  /startedChallenges:
+    post:
+      summary: Start an identity challenge
+      description: >
+        Start the identity challenge flow for the user's chosen factor. For `sms`, `voice`, and `email`
+        challenges, this causes the system to send a four to six digit code to the user via SMS, automated voice
+        phone call, or email. The factor passed in the request is marked as _active_ and eligible to be
+        verified. The user should complete the challenge by submitting their response(s) to the challenge via
+        the [`verifyIdentityChallenge`](#op-verifyIdentityChallenge) operation.
+      operationId: startIdentityChallenge
+      x-apiture-group: challenges
+      tags:
+        - Challenges
+      security:
+        - accessToken:
+            - challenges/write
+      requestBody:
+        required: true
+        description: The data necessary to initiate an identity challenge flow.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/identityChallenge'
+          application/restful+json:
+            schema:
+              $ref: '#/components/schemas/identityChallenge'
+      responses:
+        '200':
+          description: OK. The identity challenge flow was started successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/startedIdentityChallenge'
+            application/restful+json:
+              schema:
+                $ref: '#/components/schemas/startedIdentityChallenge'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          description: Unprocessable Entity.
+          x-apiture-errors:
+            - invalidChallengeId
+            - invalidChallengeFactor
+            - invalidChallengeOperationId
+            - $ref: '../common/openapi.yaml#/components/x-apiture-errors/challengeBlocked'
+          content:
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+
+  /verifiedChallenges:
+    post:
+      summary: Verify an identity challenge
+      description: >-
+        Verify an active identity challenge for a specific factor.
+        This verifies that the submitted data matches the expected response(s)
+        for the chosen challenge factor. The factor must be active; that is,
+        it must be the most recent factor used to start the identity challenge.
+      operationId: verifyIdentityChallenge
+      tags:
+        - Challenges
+      x-apiture-group: challenges
+      security:
+        - accessToken:
+            - challenges/write
+      requestBody:
+        required: true
+        description: The data necessary to initiate the challenge flow.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/identityChallengeResponse'
+          application/restful+json:
+            schema:
+              $ref: '#/components/schemas/identityChallengeResponse'
+      responses:
+        '200':
+          description: OK. The challenge verification completed successfully.
+            The response indicates if the request matched or not.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/verifiedIdentityChallenge'
+            application/restful+json:
+              schema:
+                $ref: '#/components/schemas/verifiedIdentityChallenge'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          description: Unprocessable Entity. The request was well formed but
+            contains invalid data.
+          x-apiture-errors:
+            - invalidChallengeId
+            - invalidChallengeFactor
+            - invalidChallengeOperationId
+            - wrongNumberOfResponses
+            - $ref: '../common/openapi.yaml#/components/x-apiture-errors/challengeBlocked'
+          content:
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+        '409':
+          description: Unprocessable Entity. The request was well formed but
+            contains invalid data.
+          x-apiture-errors:
+            - invalidChallengeFactorState
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/problemResponse'
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/problemResponse'
+
+components:
+  securitySchemes:
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+
+  parameters:
+    challengeHeaderParam:
+      name: Challenge
+      description: >-
+        This operation may require a completed challenge. If the first attempt calling this operation fails
+        with a 401 `challengeRequired` error, the client should complete the
+        challenge flow as described in the Challenges API,
+        then retry the operation with this `Challenge` request header using the
+        `challengeToken` returned at the end of that flow. If this is passed but the value is
+        invalid, the operation fails with a 401 status code and the `invalidIdentityChallengeHeader`
+        problem type.
+      in: header
+      schema:
+        $ref: '#/components/schemas/challengeToken'
+
+  schemas:
+    challenge:
+      title: Challenge
+      description: >
+        The challenge that is initiated by a service and to be completed by a user.
+      type: object
+      x-apiture-fragment: true
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - challengeId
+            - factor
+          properties:
+            factor:
+              description: The type of challenge.
+              $ref: '../common/openapi.yaml#/components/schemas/challengeFactorType'
+            challengeId:
+              description: The ID of the selected challenge.
+                This is the `challengeId` from the corresponding challenge in the 401 problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+      example:
+        operationId: createTransfer
+        challengeId: b8cae0901002bba4e2a7
+        factor: sms
+
+    identityChallenge:
+      title: Identity Challenge
+      description: An identity challenge to verify the banking customer
+        is who they claim.
+      allOf:
+        - $ref: '#/components/schemas/challenge'
+        - type: object
+          required:
+            - operationId
+          properties:
+            operationId:
+              description: The context in which the user must complete the challenge.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+
+    startedIdentityChallenge:
+      title: Started Challenge
+      description: The server response after starting an identity challenge.
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/challenge'
+        - type: object
+          required:
+            - expiresAt
+            - minimumResponseLength
+            - maximumResponseLength
+          properties:
+            expiresAt:
+              description: The timestamp when this challenge expires.
+                The user must submit their challenge response before this time
+                in order for it to be valid.
+              $ref: '../common/openapi.yaml#/components/schemas/readOnlyTimestamp'
+            minimumResponseLength:
+              description: The minimum number of characters required for the response for this factor.
+                For example, a one-time passcode might have a minimum of 6 characters
+                but a `securityQuestions` response might have a minimum of 2 characters.
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 8
+            maximumResponseLength:
+              description: The maximum number of characters required for the response for this factor.
+                For example, a `sms` one-time passcode might have a maximum of 8 characters
+                but a `securityQuestions` response might have a maximum of 255 characters.
+              type: integer
+              format: int32
+              minimum: 2
+              maximum: 255
+      example:
+        operationId: createTransfer
+        factor: sms
+        challengeId: b8cae0901002bba4e2a7
+        expiresAt: '2023-01-05T08:50:33.375Z'
+        minimumResponseLength: 8
+        maximumResponseLength: 8
+
+    challengeResponseItem:
+      x-apiture-version: 1.1.0
+      title: Challenge Response Item
+      description: A user's response to challenge.
+      type: object
+      required:
+        - response
+      properties:
+        promptId:
+          description: The unique ID of the prompt corresponding to this response.
+            This property is only used if the challenge factor is `securityQuestions`.
+          $ref: '../common/openapi.yaml#/components/schemas/challengePromptId'
+        response:
+          description: The response to the challenge, as entered by the user.
+            The system ignores leading/trailing whitespace and ignores case
+            when verifying the response. The actual minimum and maximum characters
+            for the response are set by the `minimumResponseLength` and `maximumResponseLength`
+            properties of the [`startedIdentityChallenge`](#schema-startedIdentityChallenge).
+          type: string
+          format: text
+          maxLength: 255
+      examples:
+        - response: '939733'
+        - promptId: q4
+          response: Kinston High School
+
+    challengeResponse:
+      x-apiture-version: 1.1.0
+      title: Challenge Response
+      description: >-
+        The user's response(s) to the challenge,
+        submitted for verification against expected responses.
+      x-apiture-fragment: true
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - factor
+            - operationId
+            - challengeId
+            - responses
+          properties:
+            factor:
+              description: The type of challenge delivery factor, chosen
+                from the `requiredIdentityChallenge` problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/challengeFactorType'
+            operationId:
+              description: The ID of the API operation in which the user must complete challenge
+                from the `requiredIdentityChallenge` problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+              type: string
+              pattern: '^[a-zA-Z0-9$_]+$'
+              minLength: 6
+              maxLength: 48
+            challengeId:
+              description: >-
+                The ID of the challenge.
+                This is the `challengeId` from the corresponding challenge in the 401 problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+            responses:
+              description: The text entered by the user in response to the challenge.
+                This may be the code sent via SMS, email, or voice, or it may be the
+                answers to the security questions.
+              type: array
+              uniqueItems: true
+              minItems: 1
+              maxItems: 8
+              items:
+                $ref: '#/components/schemas/challengeResponseItem'
+      examples:
+        - factor: securityQuestions
+          operationId: createTransfer
+          challengeId: dec42c64402319a59ec7
+          responses:
+            - promptId: q1
+              response: Smith
+            - promptId: q4
+              response: Kinston High School
+            - promptId: q9
+              response: Walter
+        - factor: sms
+          operationId: createTransfer
+          challengeId: dec42c64402319a59ec7
+          responses:
+            - response: '987303'
+
+    identityChallengeResponse:
+      x-apiture-version: 1.1.0
+      title: Identity Challenge Response
+      description: A banking customer response(s) to an identity challenge.
+      allOf:
+        - $ref: '#/components/schemas/challengeResponse'
+
+    challengeResult:
+      title: Challenge Result
+      description: The result from verifying a user's response(s) to challenge.
+      type: string
+      x-apiture-enum: challengeResult
+      enum:
+        - verified
+        - failed
+        - expired
+        - locked
+
+    challengeAllows:
+      title: Challenge Allows
+      description: Indicates what features of the challenge are allowed
+        after verification has failed.
+        **Note:** If a `retry`, `restart`, or `reverify` flag is omitted,
+        the client can call those those operations, but they may fail with a `challengeBlocked` error.
+      type: object
+      properties:
+        retry:
+          description: >-
+            If `true`, the user may retry challenge by
+            selecting any of the original challenges and starting/verifying that challenge.
+            If `false`, the client should not allow the user to retry identity verification by
+            selecting one of the original challenges and starting/verifying it.
+          type: boolean
+        restart:
+          description: >-
+            If `true`, the client may [restart this challenge](#op-startIdentityChallenge).
+            If `false`, the client should not [restart the challenge](#op-startIdentityChallenge).
+          type: boolean
+        reverify:
+          description: >-
+            If `true`, the user may enter a new response to the same challenge
+            and the client invoke the [`verifyIdentityChallenge`](#op-verifyIdentityChallenge)
+            after failing verification.
+            For example, if the user typed a one-time passcode incorrectly, the user can verify a new code.
+            If `false`, the client should not allow the user to
+            [enter and validate a new response to the same challenge](#op-verifyIdentityChallenge)
+            after failing verification.
+          type: boolean
+
+    verifiedIdentityChallenge:
+      title: Verified Challenge
+      description: The response from verifying the challenge.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - factor
+            - challengeId
+            - result
+          properties:
+            challengeId:
+              description: >-
+                The ID of the selected challenge.
+                This is the `id` from the corresponding challenge in the 401 problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+            factor:
+              description: The type of challenge.
+              $ref: '../common/openapi.yaml#/components/schemas/challengeFactorType'
+            operationId:
+              description: The ID of the API operation in which the user must complete the challenge,
+                from the `requiredIdentityChallenge` problem response.
+              $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+            result:
+              $ref: '#/components/schemas/challengeResult'
+            allows:
+              description: Indicates if the user may retry or restart the challenge or verification.
+                This property exists if the `result` is `failed` or `expired`.
+              $ref: '#/components/schemas/challengeAllows'
+            challengeToken:
+              description: >-
+                The value that the client must send in the `Challenge` request header when retrying the
+                operation that required a challenge. This property is not present if the result is `failed`.
+              $ref: '#/components/schemas/challengeToken'
+      examples:
+        - challengeId: b8cae0901002bba4e2a7
+          operationId: createTransfer
+          factor: sms
+          result: verified
+          challengeToken: 91a2a7724d6e82f5cd73
+        - challengeId: b8cae0901002bba4e2a7
+          operationId: createTransfer
+          factor: sms
+          result: failed
+          allows:
+            retry: false
+            restart: false
+            reverify: true
+
+    challengeToken:
+      title: Challenge Token
+      description: >-
+        The value of the identity `Challenge` request header that the client must send when retrying an
+        operation which required a challenge.
+      type: string
+      pattern: '^[-_:.~%$a-zA-Z0-9]{6,255}$'
+      minLength: 8
+      maxLength: 255
+
+  x-apiture-errors:
+    invalidChallengeId:
+      description: The provided `challengeId` is invalid, expired, already claimed, or does not match the `factor` or context.
+      remediation: Provide the corresponding `operationId`, `factor` and `id` from the challenge.
+    invalidChallengeFactorState:
+      description: The selected challenge factor is not active.
+      remediation: Start the challenge factor to set it as active before verifying a user response.
+    invalidChallengeOperationId:
+      description: The `operationId` is invalid.
+      remediation: Use the `operationId` from the corresponding challenge.
+    invalidChallengeFactor:
+      description: The `factor` in the request does not match available factors.
+      remediation: Use a `factor` that corresponds to the `challengeId` from the corresponding challenge.
+    wrongNumberOfResponses:
+      description: The challenge verification sent the wrong number of response strings.
+      remediation: Send only one response for one-time passcode challenges, or send
+        exactly one response for each security question.

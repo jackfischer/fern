@@ -1,0 +1,1517 @@
+openapi: 3.1.0
+info:
+  title: Customer Accounts
+  description: >-
+    Customer-level API for listing banking accounts, balances, and other account-specific data.
+
+
+    Clients may use this API to:
+
+      * [`listAccounts`](#op-listAccounts) - obtain a list of accounts that the authorized user has access to,
+      returning a [`accounts`](#schema-accounts) collection with a `list` of account objects.
+      * [`listEligibleAchAccounts`](#op-listEligibleAchAccounts) - obtain a list of ACH accounts that allow
+      transfers based on SEC code and authorized account privileges.
+      * [`listAccountBalances`](#op-listAccountBalances) - list the balances of the customer' accounts.
+      * [`getAccount`](#op-getAccount) - Fetch a more complete set of properties of an internal account.
+      * Manage overdraft protection:
+        * [`listEligibleOverdraftAccounts`](#op-listEligibleOverdraftAccounts) - List accounts which may be set as
+        overdraft protection accounts for another account.
+        * [`getOverdraftProtection`](#op-getOverdraftProtection) - fetch an account's overdraft protection settings.
+        * [`patchOverdraftAccounts`](#op-patchOverdraftAccounts) - update an account's overdraft protection settings.
+  version: 0.26.0
+  contact:
+    name: Apiture
+    url: 'https://developer.apiture.com/help/support/'
+    email: api@apiture.com
+  termsOfService: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+  license:
+    name: Apiture API License
+    url: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+x-apiture-namespace: bankingAccounts
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Accounts
+    description: Banking Accounts
+  - name: Account Joint Owners
+    description: Account Joint Owners
+  - name: Overdraft Protection
+    description: Overdraft Protection Settings
+
+paths:
+  /accounts:
+    get:
+      summary: List Accounts
+      operationId: listAccounts
+      x-apiture-group: accounts
+      description: Return a paginated list of the customer's accounts, consisting of
+        internal accounts at this financial institution and accounts at other financial institutions, if any.
+      parameters:
+        - name: productType
+          description: Include only accounts whose `product.type` is in pipe-delimited set.
+            For example, to list only savings, checking, and CD accounts, use <br>`?productType=savings|checking|cd`.
+          in: query
+          style: pipeDelimited
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            x-apiture-note: maxItems 6 is the number of enum values in productType
+            maxItems: 6
+            uniqueItems: true
+            items:
+              $ref: '../products/openapi.yaml#/components/schemas/productType'
+        - name: location
+          in: query
+          schema:
+            type: string
+            enum:
+              - internal
+              - external
+          description: >-
+            Filter accounts to just a subset of `internal` or `external` accounts
+            (per the `location` property on the [`accountItem`](#schema-accountItem) schema).
+        - $ref: '#/components/parameters/accountAllowsQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/startQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/limitQueryParam'
+      tags:
+        - Accounts
+      security:
+        - accessToken:
+            - banking/read
+      responses:
+        '200':
+          description: >-
+            OK. A page from the full list of the customer's accounts.
+            This list contains only accounts that the customer is entitled
+            to access. While the `nextPage_url` property is present in the response,
+            the client can fetch the next page of accounts by performing
+            a `GET` on that URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/accounts'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          $ref: '../common/openapi.yaml#/components/responses/422'
+
+  /accounts/{accountId}:
+    parameters:
+      - $ref: '#/components/parameters/accountIdPathParam'
+    get:
+      summary: Get an Account
+      operationId: getAccount
+      x-apiture-group: accounts
+      description: Return details of the customer's internal account.
+      tags:
+        - Accounts
+      security:
+        - accessToken:
+            - banking/read
+      responses:
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          $ref: '#/components/responses/404Account'
+        '200':
+          description: OK. The response is a representation of the customer's account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/account'
+
+  /accountBalances:
+    get:
+      summary: List Account Balances
+      operationId: listAccountBalances
+      x-apiture-group: accounts
+      description: Return a list of the requested internal accounts' balances.
+        The `accounts` query parameter is a list of account IDs which
+        typically comes from the `getAccounts` operation response.
+        The returned list does not include external accounts.
+        The caller must have entitlements to view each account's details,
+        as indicated by a `true` value for `account.allows.view`.
+        Requests to list balances for accounts the user is not allowed
+        to read results in a 403 Forbidden response.
+
+
+        The response may be incomplete. Given a `Retry-After` response header,
+        the client can retry the operation after a short delay,
+        requesting only the accounts which are incomplete; see
+        the 202 Accepted response for details.
+      parameters:
+        - name: accounts
+          description: >-
+            The unique account identifiers of one or more internal accounts.
+            (Internal accounts are those with `location` value of `internal`.)
+            If omitted, this operation uses the accounts for which the customer has view permissions
+            but is limited to at most 1000 accounts.
+            Note: The account IDs are unrelated to the account number.
+          in: query
+          required: false
+          style: form
+          explode: false
+          schema:
+            $ref: '#/components/schemas/accountIds'
+        - name: retryCount
+          description: When retrying the operation, pass the `retryCount` from
+            the `incompleteAccountBalances` response.
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 10
+      tags:
+        - Accounts
+      security:
+        - accessToken:
+            - banking/read
+      responses:
+        '200':
+          description: >-
+            OK. The response contains the balances for all the accounts
+            in the `?accounts=` query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/accountBalances'
+        '202':
+          description: >-
+            Accepted. The service accepted the request but could not
+            provide balances for all the requested accounts and returned
+            an incomplete response. Try the call again after the time
+            in the `Retry-After` response header has passed, and request
+            only those accounts which are `incomplete`. If there is no
+            `Retry-After` response header, the client has reached its
+            maximum number of tries and should not retry the operation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/incompleteAccountBalances'
+          headers:
+            Retry-After:
+              $ref: '../common/openapi.yaml#/components/headers/Retry-After'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          description: >-
+            Unprocessable Entity.
+            The request body and/or query parameters were well-formed but otherwise invalid.
+          x-apiture-errors:
+            - invalidAccountId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+              example:
+                id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+                type: 'https://api.apiture.com/errors/invalidAccountId/v1.0.0'
+                title: Unprocessable Entity
+                status: 422
+                occurredAt: '2022-04-25T12:42:21.375Z'
+                detail: No such account exists for the given account ID.
+                instance: 'https://api.apiture.com/banking/accountBalances?accounts=bb709151-575041fcd617'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+              example:
+                id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+                type: 'https://api.apiture.com/errors/invalidAccountId/v1.0.0'
+                title: Unprocessable Entity
+                status: 422
+                occurredAt: '2022-04-25T12:42:21.375Z'
+                detail: No such account exists for the given account ID.
+                instance: 'https://api.apiture.com/banking/accountBalances?accounts=bb709151-575041fcd617'
+        '429':
+          $ref: '../common/openapi.yaml#/components/responses/429'
+        '503':
+          description: >-
+            Service Unavailable.
+            Could not fetch the account balance from the banking core.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+
+  /accounts/{accountId}/jointOwners:
+    get:
+      summary: Return a collection of account joint owners
+      description: >-
+        Return a collection of account joint owners.
+        The user must have the `account.manageJointOwners` permission
+        to use this operation.
+      operationId: listAccountJointOwners
+      x-apiture-group: jointOwners
+      tags:
+        - Account Joint Owners
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/accountJointOwners'
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          $ref: ../common/openapi.yaml#/components/responses/404
+      security:
+        - accessToken:
+            - banking/read
+    parameters:
+      - $ref: '#/components/parameters/accountIdPathParam'
+
+  /achEligibleAccounts:
+    get:
+      summary: List Eligible ACH Accounts
+      operationId: listEligibleAchAccounts
+      x-apiture-group: accounts
+      parameters:
+        - $ref: '#/components/parameters/accountAllowsRequiredQueryParam'
+        - $ref: '#/components/parameters/secCodeQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/customerIdQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/startQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/limitQueryParam'
+      description: >-
+        Return a paginated list of a customer's accounts that are eligible for ACH transfers based on
+        allowed privileges.
+
+
+        Optionally, an agent can access a business customer's ACH accounts
+        when acting on behalf of that business customer via the optional `customerId` query parameter.
+      tags:
+        - Accounts
+      security:
+        - accessToken:
+            - banking/read
+      responses:
+        '200':
+          description: >-
+            OK. A page from the full list of the customer's ACH-eligible accounts.
+            This list contains only accounts that the customer is entitled
+            to access. While the `nextPage_url` property is present in the response,
+            the client can fetch the next page of accounts by performing
+            a `GET` on that URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/accounts'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          $ref: '../common/openapi.yaml#/components/responses/422'
+
+  /accounts/{accountId}/eligibleOverdraftAccounts:
+    parameters:
+      - $ref: '#/components/parameters/accountIdPathParam'
+    get:
+      summary: List Eligible Overdraft Accounts
+      operationId: listEligibleOverdraftAccounts
+      x-apiture-group: overdraftProtection
+      parameters:
+        - $ref: '../common/openapi.yaml#/components/parameters/startQueryParam'
+        - $ref: '../common/openapi.yaml#/components/parameters/limitQueryParam'
+      description: >-
+        Return a paginated list of a customer's accounts that are eligible to serve as overdraft
+        protection accounts for the given account. An overdraft protection account is a deposit account
+        that the financial institution can transfer funds from to prevent the account balance
+        from going negative and incurring non-sufficient funds fees.
+
+
+        The user must have the `allows.manageOverdraftAccounts` permission
+        on the account to use this operation.
+
+
+        To obtain available balances for these accounts, use
+        [`listAccountBalances`](#op-listAccountBalances).
+      tags:
+        - Overdraft Protection
+      security:
+        - accessToken:
+            - banking/read
+      responses:
+        '200':
+          description: >-
+            OK. A page from the full list of the customer's eligible overdraft accounts.
+            This list contains only accounts that the customer is entitled
+            to access. While the `nextPage_url` property is present in the response,
+            the client can fetch the next page of accounts by performing
+            a `GET` on that URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/eligibleOverdraftAccounts'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          $ref: '#/components/responses/404Account'
+        '422':
+          $ref: '../common/openapi.yaml#/components/responses/422'
+
+  /accounts/{accountId}/overdraftProtection:
+    parameters:
+      - $ref: '#/components/parameters/accountIdPathParam'
+    get:
+      summary: Fetch a representation of the account's overdraft protection settings
+      description: Return the JSON representation of this account's overdraft protection settings.
+      operationId: getOverdraftProtection
+      x-apiture-group: overdraftProtection
+      tags:
+        - Overdraft Protection
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/overdraftProtection'
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          description: >-
+            Unprocessable Entity. There is no such banking account resource at the specified
+            account `{id}`, the caller does not have access to that account,
+            or that account is not eligible, or there are duplicate items.
+            The response body contains details about the request error.
+          x-apiture-errors:
+            - invalidAccountId
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+      security:
+        - accessToken:
+            - banking/read
+    patch:
+      summary: Update the overdraft accounts
+      description: >-
+        Perform a partial update of the overdraft accounts. Only fields in the request body are updated on the
+        resource; fields which are omitted are not updated.
+        To add, replace, or remove an overdraft account, add,
+        replace, or remove the corresponding account item from the `items` array.
+        Only the account `id` in the items is significant.
+
+
+        The user must have the `allows.manageOverdraftAccounts` permission
+        on the account to use this operation.
+      operationId: patchOverdraftAccounts
+      x-apiture-group: overdraftProtection
+      tags:
+        - Overdraft Protection
+      requestBody:
+        required: true
+        description: The replacement overdraft accounts.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/overdraftProtectionPatch'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/overdraftProtection'
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          $ref: '#/components/responses/404Account'
+        '422':
+          description: >-
+            Unprocessable Entity. There is no such banking account resource at the specified
+            account `{id}`, the caller does not have access to that account,
+            or that account is not eligible, or there are duplicate items.
+            The response body contains details about the request error.
+          x-apiture-errors:
+            - invalidAccountId
+            - tooManyOverdraftAccounts
+            - overdraftAccountNotEligible
+            - duplicateOverdraftAccounts
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+      security:
+        - accessToken:
+            - banking/write
+
+  /accounts/{accountId}/jointOwnerInvitations:
+    parameters:
+      - $ref: '#/components/parameters/accountIdPathParam'
+    post:
+      summary: Invite a joint owner
+      description: Create and send an invitation to another person to become a joint owner
+        of the account. The invitation will be sent to the invitee's email
+        address. The invitation directs the invitee to a web page to verify and accept the invitation,
+        and if necessary, enroll in digital banking.
+
+
+        The authenticated user must have the `account.allows.manageJointOwners` permission
+        to use this operation.
+      operationId: createJointOwnerInvitation
+      x-apiture-group: jointOwners
+      tags:
+        - Account Joint Owners
+      requestBody:
+        required: true
+        description: Data necessary to invite a joint owner.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/newJointOwnerInvitation'
+      responses:
+        '200':
+          description: OK.
+          headers:
+            Location:
+              description: The URI of the new invitation resource.
+              schema:
+                type: string
+                maxLength: 128
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/jointOwnerInvitation'
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          $ref: '#/components/responses/404Account'
+        '422':
+          $ref: ../common/openapi.yaml#/components/responses/422
+      security:
+        - accessToken:
+            - banking/write
+
+components:
+  securitySchemes:
+    apiKey:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/apiKey'
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+
+  responses:
+    404Account:
+      description: >-
+        Not Found. There is no such banking account resource at the specified
+        `{accountId}`. The response body contains details
+        about the request error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+
+  parameters:
+    accountIdPathParam:
+      name: accountId
+      description: The unique identifier of this account resource. This is an opaque string.
+      in: path
+      required: true
+      schema:
+        $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+
+    accountAllowsQueryParam:
+      name: allows
+      in: query
+      description: Filter the result to accounts that have corresponding `true` values in `account.allows`.
+        For example `?allows=transferTo,transferFrom,view` returns only accounts where
+        `account.allows.transferTo`, `account.allows.transferFrom`, and `account.allows.view`
+        are all `true` for the caller.
+      style: form
+      explode: false
+      schema:
+        type: array
+        minItems: 1
+        x-apiture-note: maxItems 7 is the number of enum items in accountAllowsFilter
+        maxItems: 7
+        uniqueItems: true
+        items:
+          $ref: '#/components/schemas/accountAllowsFilter'
+
+    accountAllowsRequiredQueryParam:
+      name: allows
+      in: query
+      description: Filter the result to accounts that have corresponding `true` values in `account.allows`.
+        For example `?allows=transferTo,transferFrom,view` returns only accounts where
+        `account.allows.transferTo`, `account.allows.transferFrom`, and `account.allows.view`
+        are all `true` for the caller.
+      required: true
+      schema:
+        type: array
+        minItems: 1
+        x-apiture-note: maxItems 7 is the number of enum items in accountAllowsFilter
+        maxItems: 7
+        uniqueItems: true
+        items:
+          $ref: '#/components/schemas/accountAllowsFilter'
+
+    secCodeQueryParam:
+      name: secCode
+      in: query
+      description: Filter the result to accounts that allow ACH transfers of the given
+        Standard Entry Class (SEC) codes.
+      required: true
+      schema:
+        $ref: '../common/openapi.yaml#/components/schemas/achSecCode'
+
+  schemas:
+    accountIds:
+      x-apiture-version: 1.1.0
+      title: Account IDs
+      description: An array of account IDs.
+      type: array
+      minItems: 1
+      x-apiture-note: >-
+        1000 maxItems is tied to 1000 maximum of the ?limit query parameter
+      maxItems: 1000
+      uniqueItems: true
+      items:
+        $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+
+    accountAllowsFilter:
+      title: Account Allows Filter
+      description: Values for the `?allows=` filter in [`listAccounts`](#op-listAccounts).
+      type: string
+      x-apiture-enum: accountAllowsFilter
+      enum:
+        - billPay
+        - transferFrom
+        - transferTo
+        - mobileCheckDeposit
+        - view
+        - viewCards
+        - manageCards
+
+    accountPermissions:
+      title: Account Permissions
+      description: Flags which indicate the permissions the current
+        authorized user has on this account item resource. Most of these
+        properties may only be `true` for internal accounts.
+        These permissions are available in account items in the [`accounts`](#schema-accounts)
+        list. See [`fullAccountPermissions`](#schema-fullAccountPermissions) for
+        all capabilities a customer has on an account (the `account.allows` object
+        in the [`account`](#schema-account) object response from [`getAccount`](#op-getAccount).)
+      x-apiture-version: 0.3.0
+      type: object
+      required:
+        - billPay
+        - mobileCheckDeposit
+        - transferTo
+        - transferFrom
+        - view
+        - viewCards
+        - manageCards
+      properties:
+        billPay:
+          description: If `true`, the customer may use this account for Bill Pay.
+          type: boolean
+        mobileCheckDeposit:
+          description: If `true`, the customer may use this account for mobile check deposits.
+          type: boolean
+        transferFrom:
+          description: If `true`, the customer may use this account as the target (deposit) account for account-to-account transfers.
+          type: boolean
+        transferTo:
+          description: If `true`, the customer may use this account as the source (debit) account for account-to-account transfers.
+          type: boolean
+        view:
+          description: If `true`, the customer may view the details of this account, including the account balance and transactions.
+          type: boolean
+        viewCards:
+          description: If `true`, the customer may view debit cards associated with this account.
+          type: boolean
+        manageCards:
+          description: If true, the customer may manage debit cards associated with this account. This includes
+            locking and unlocking cards, changing card controls, ordering cards, or canceling cards.
+          type: boolean
+      examples:
+        # Sample account permission:
+        - billPay: false
+          mobileCheckDeposit: true
+          transferFrom: true
+          transferTo: true
+          view: true
+          viewCards: true
+          manageCards: false
+
+    fullAccountPermissions:
+      title: Full Account Permissions
+      description: Flags which indicate the permissions the current
+        authorized user has on this account resource. Most of these
+        properties may only be `true` for internal accounts.
+        These permissions are available in [`account`](#schema-account) response
+        from the [`getAccount`](#op-getAccount) operation. See
+        [`accountPermissions`](#schema-accountPermissions)
+        for the subset of permission in `account.allows` flags in the [`listAccounts`](#op-listAccounts)
+        response.
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/accountPermissions'
+        - type: object
+          required:
+            - manageJointOwners
+            - manageOverdraftAccounts
+          properties:
+            manageJointOwners:
+              description: If `true`, the customer can list the other joint owners
+                on the account and invite new joint owners.
+              type: boolean
+            manageOverdraftAccounts:
+              description: If `true`, the customer can list and manage
+                overdraft account settings.
+              type: boolean
+    account:
+      title: Account
+      x-apiture-version: 3.0.0
+      description: An internal customer account.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - $ref: '#/components/schemas/accountFields'
+        - type: object
+          required:
+            - allows
+            - electronicStatements
+          properties:
+            allows:
+              description: Flags which indicate the permissions the current
+                authorized user has on this account resource.
+              readOnly: true
+              allOf:
+                - $ref: '#/components/schemas/fullAccountPermissions'
+            electronicStatements:
+              description: If `true`, the customer has opted in to receive account statements electronically.
+              type: boolean
+      examples:
+        # A payroll checking account:
+        - id: bf23bc970b78d27691e8
+          nickname: Payroll Checking
+          label: Payroll Checking *1008
+          maskedNumber: '*1008'
+          product:
+            type: checking
+            coreType: DDA
+            code: DDA01
+            label: Business Checking
+            description: Business checking account
+          location: internal
+          allows:
+            transferFrom: false
+            transferTo: true
+            billPay: false
+            mobileCheckDeposit: true
+            view: true
+            viewCards: true
+            manageCards: false
+            manageJointOwners: true
+            manageOverdraftAccounts: true
+          electronicStatements: true
+
+    overdraftAccountFields:
+      x-apiture-version: 1.1.0
+      title: Overdraft Account Fields
+      description: >-
+        Fields of an overdraft protection account, used to compose other schemas.
+      x-apiture-fragment: true
+      type: object
+      properties:
+        id:
+          description: The unique ID of the account resource. Use this as the `{accountId}` in [`getAccount`](#op-getAccount)
+            or [`listAccountBalances`](#op-listAccountBalances).
+          $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+        label:
+          description: >-
+            The human-readable label for this account.
+            This is either the `nickname` (if assigned for the current customer),
+            or the `product.label` concatenated with the `maskedNumber`.
+          type: string
+          maxLength: 80
+          example: 'Checking *1008'
+          format: text
+          readOnly: true
+        maskedNumber:
+          $ref: '#/components/schemas/maskedAccountNumber'
+      example:
+        id: 5c9b4e50a0401ef4eb2e
+        label: 'Premiere Savings *1234'
+        maskedNumber: '*1234'
+
+    eligibleOverdraftAccountItem:
+      x-apiture-version: 1.1.0
+      title: Eligible Overdraft Account
+      description: >-
+        An account that is eligible to be assigned as an overdraft protection account for another account.
+      type: object
+      required:
+        - id
+        - label
+        - maskedNumber
+      allOf:
+        - $ref: '#/components/schemas/overdraftAccountFields'
+      example:
+        id: 5c9b4e50a0401ef4eb2e
+        label: 'Premiere Savings *1234'
+        maskedNumber: '*1234'
+
+    eligibleOverdraftAccounts:
+      x-apiture-version: 1.1.0
+      title: Eligible Overdraft Accounts
+      description: >-
+        A page of zero or more accounts that are eligible to be assigned as an overdraft protection account for another account.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractPagedBody'
+        - type: object
+          required:
+            - items
+            - maximumOverdraftAccounts
+          properties:
+            items:
+              description: The items in this page of accounts.
+              maxItems: 1000
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/eligibleOverdraftAccountItem'
+            maximumOverdraftAccounts:
+              description: The maximum number of overdraft protection accounts
+                that may be linked to the account.
+              type: integer
+              format: int32
+              readOnly: true
+              minimum: 0
+              maximum: 4
+            nextPage_url:
+              description: The URL of the next page of eligible accounts.
+                If this URL is omitted, there are no more accounts.
+              x-apiture-operations:
+                - operationId: getAccount
+              readOnly: true
+              maxLength: 256
+              type: string
+              format: uri-reference
+              example: 'https://api.apiture.com/banking/accounts/bf23bc970b78d27691e8/eligibleOverdraftAccounts?start=74f96e77c3aafcb9fe85?limit=100'
+      example:
+        items:
+          - id: da1331a9e9168ea91346
+            label: 'Checking *3456'
+            maskedNumber: '*3456'
+          - id: 5c9b4e50a0401ef4eb2e
+            label: 'Premiere Savings *1234'
+            maskedNumber: '*1234'
+        maximumOverdraftAccounts: 1
+        limit: 100
+        nextPage_url: 'https://api.apiture.com/banking/accounts/f204d292df9fb/eligibleOverdraftAccounts?start=641f62296ecbf1882c84?limit=100'
+
+    overdraftAccountItem:
+      x-apiture-version: 1.1.0
+      title: Overdraft Account Items
+      description: >-
+        An overdraft protection account linked to another protected account.
+        The `label` and `maskedNumber` are informational only.
+      required:
+        - id
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/overdraftAccountFields'
+
+
+    overdraftProtectionFields:
+      x-apiture-version: 1.1.0
+      title: Overdraft Protection Fields
+      description: Fields used to compose other overdraft protection schemas.
+      x-apiture-fragment: true
+      type: object
+      properties:
+        accounts:
+          description: The ordered list of accounts assigned as overdraft protection accounts.
+            This array is limited to no more than `maximumOverdraftAccounts` accounts.
+          maxItems: 4
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/overdraftAccountItem'
+
+    overdraftProtection:
+      x-apiture-version: 1.1.0
+      title: Overdraft Protection Settings
+      description: Representation of the overdraft protection settings,
+        consisting of a list of overdraft protection accounts linked
+        to the account identified by the `{accountId}`.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/overdraftProtectionFields'
+        - type: object
+          required:
+            - accounts
+            - maximumOverdraftAccounts
+          properties:
+            maximumOverdraftAccounts:
+              description: The maximum number of overdraft protection accounts
+                that may be linked to the account.
+              type: integer
+              format: int32
+              readOnly: true
+              minimum: 0
+              maximum: 4
+      example:
+        maximumOverdraftAccounts: 1
+        items:
+          - id: da1331a9e9168ea91346
+            label: 'Checking *3456'
+            maskedNumber: '*3456'
+          - id: 5c9b4e50a0401ef4eb2e
+            label: 'Premiere Savings *1234'
+            maskedNumber: '*1234'
+
+    overdraftProtectionPatch:
+      x-apiture-version: 1.1.0
+      title: Overdraft Protection Patch
+      description: Representation of request used to patch the overdraft protection settings
+        consisting of a list of overdraft protection accounts linked
+        to the account identified by the `{accountId}`.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/overdraftProtectionFields'
+      example:
+        items:
+          - id: da1331a9e9168ea91346
+            label: 'Checking *3456'
+            maskedNumber: '*3456'
+          - id: 5c9b4e50a0401ef4eb2e
+            label: 'Premiere Savings *1234'
+            maskedNumber: '*1234'
+
+    accounts:
+      title: Accounts
+      x-apiture-version: 3.0.0
+      description: A paginated list of the customer's accounts.
+        This list contains internal banking accounts and external banking accounts.
+        and outside fund accounts. The `location` property indicates where
+        the account is held. Items in the list contain `url` links to the
+        actual account resource which are in the
+        `accounts`, `externalAccounts` or `outsideAccounts` collections.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractPagedBody'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: The array of items in this page of accounts.
+                This array may be empty.
+              readOnly: true
+              type: array
+              maxItems: 1000
+              items:
+                $ref: '#/components/schemas/accountItem'
+            count:
+              description: The total number of accounts for which the user has access.
+                This value ignores any filters.
+                This value is _optional_ and may be omitted if the count is not computable efficiently.
+              type: integer
+              format: int32
+              minimum: 0
+              maximum: 25000
+            primaryAccountId:
+              description: >-
+                The `id` of the customer's primary account.
+                This property only exists for retail customers, and only if the customer
+                has designated a primary account.
+              $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+            nextPage_url:
+              description: The URL of the next page of accounts.
+                If this URL is omitted, there are no more accounts.
+              x-apiture-operations:
+                - operationId: getAccount
+              readOnly: true
+              maxLength: 256
+              type: string
+              format: uri-reference
+              example: 'https://api.apiture.com/banking/accounts/bf23bc970b78d27691e8'
+      examples:
+        # A collection of two accounts:
+        - nextPage_url: 'https://api.apiture.com/banking/accounts?start=641f62296ecbf1882c84?limit=100?allows=view'
+          count: 6
+          items:
+            - id: bf23bc970b78d27691e8
+              nickname: Payroll Checking
+              label: Payroll Checking *1008
+              product:
+                type: checking
+                coreType: DDA
+                code: DDA01
+                label: Business Checking
+                description: Basic business checking accounts
+              maskedNumber: '*1008'
+              location: internal
+              allows:
+                transferFrom: false
+                transferTo: true
+                billPay: false
+                mobileCheckDeposit: true
+                view: true
+                viewCards: true
+                manageCards: false
+            - id: b78d27691e8bf23bc970
+              nickname: College CD
+              label: College CD *2017
+              product:
+                type: cd
+                code: CDA
+                label: 24 Month CD
+                description: 24 Month certificate of deposit
+              maskedNumber: '*2017'
+              location: internal
+              allows:
+                transferFrom: false
+                transferTo: false
+                billPay: false
+                mobileCheckDeposit: false
+                view: true
+                viewCards: true
+                manageCards: false
+
+    accountLocation:
+      title: Account Location
+      description: >-
+        Indicates where an account is held:
+          * `internal` accounts at the current financial institution;
+          * `external` accounts at another financial institution;
+          * `outside` accounts non-banking accounts such as brokerage and fund accounts.
+        Account transfers are only allowed between `internal` and `external` accounts.
+        All accounts are considered when calculating total cash balance.
+      type: string
+      enum:
+        - internal
+        - external
+        - outside
+
+    accountFields:
+      x-apiture-version: 2.0.0
+      title: Account Fields
+      description: Fragment schema use to build other account schemas.
+      x-apiture-fragment: true
+      required:
+        - id
+        - label
+        - maskedNumber
+        - product
+        - location
+      properties:
+        id:
+          description: >-
+            The unique identifier for this account resource.
+            This is an immutable opaque string.
+          allOf:
+            - $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+        label:
+          description: >-
+            The human-readable label for this account.
+            This is either the `nickname` (if assigned for the current customer),
+            or the `product.label` concatenated with the `maskedNumber`.
+          type: string
+          maxLength: 80
+          format: text
+          example: 'Checking *1008'
+          readOnly: true
+        nickname:
+          $ref: '#/components/schemas/accountNickname'
+        maskedNumber:
+          $ref: '#/components/schemas/maskedAccountNumber'
+        product:
+          $ref: '../products/openapi.yaml#/components/schemas/productReference'
+        location:
+          description: Indicates where an account is held.
+          allOf:
+            - $ref: '#/components/schemas/accountLocation'
+
+    accountItem:
+      title: Account Item
+      x-apiture-version: 3.0.0
+      description: An account item in a list items in the `accounts` schema.
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/accountFields'
+        - type: object
+          required:
+            - allows
+          properties:
+            id:
+              description: >-
+                The unique identifier for this account resource.
+                This is an immutable opaque string.
+              allOf:
+                - $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+            label:
+              description: >-
+                The human-readable label for this account.
+                This is either the `nickname` (if assigned for the current customer),
+                or the `product.label` concatenated with the `maskedNumber`.
+              type: string
+              minLength: 1
+              maxLength: 80
+              example: 'Checking *1008'
+              format: text
+              readOnly: true
+            nickname:
+              $ref: '#/components/schemas/accountNickname'
+            maskedNumber:
+              $ref: '#/components/schemas/maskedAccountNumber'
+            allows:
+              $ref: '#/components/schemas/accountPermissions'
+            product:
+              $ref: '../products/openapi.yaml#/components/schemas/productReference'
+            location:
+              description: Indicates where an account is held.
+              allOf:
+                - $ref: '#/components/schemas/accountLocation'
+      examples:
+        # An item in the accounts items array:
+        - id: bf23bc970b78d27691e8
+          location: internal
+          nickname: Payroll Checking
+          label: Payroll Checking *1008
+          product:
+            type: checking
+            coreType: DDA
+            code: DDA01
+            label: Business Checking
+            description: Basic business checking account
+          maskedNumber: '*1008'
+          allows:
+            transferFrom: false
+            transferTo: true
+            billPay: false
+            mobileCheckDeposit: true
+            view: true
+            viewCards: true
+            manageCards: true
+
+    externalAccountVerificationMethod:
+      x-apiture-version: 1.1.0
+      title: External Account Verification Method
+      description: The method used to verify the customer has access to the external account.
+      type: string
+      x-apiture-enum: externalAccountVerificationMethod
+      enum:
+        - instant
+        - microDeposits
+        - manual
+
+    accountRoutingNumber:
+      title: Account Routing Number
+      description: An account ABA routing and transit number.
+      type: string
+      minLength: 9
+      maxLength: 9
+      pattern: ^[0-9]{9}$
+      example: '123123123'
+
+    accountNickname:
+      x-apiture-version: 1.2.0
+      title: Account Nickname
+      description: >-
+        The nickname (friendly name) the customer has given this account.
+        Each customer can define their own nickname for the same account.
+        If omitted, the customer has not set a nickname.
+      type: string
+      maxLength: 50
+      format: text
+      example: 'Payroll Checking'
+
+    maskedAccountNumber:
+      x-apiture-version: 1.0.1
+      title: Masked Account Number
+      description: >-
+        A masked account number: an asterisk `*` followed by one to four characters
+        of the `fullAccountNumber`.
+      type: string
+      minLength: 2
+      maxLength: 5
+      pattern: '^\*[- _a-zA-Z0-9.]{1,4}$'
+      examples:
+        - '*1008'
+        - '*0005'
+
+    fullAccountNumber:
+      title: Full Account Number
+      description: >-
+        A full account number.
+        This is the number that the customer uses to reference the account within the financial institution.
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '^[- a-zA-Z0-9.]{1,32}$'
+      examples:
+        - '123456789'
+
+    accountBalances:
+      x-apiture-version: 1.1.0
+      title: Account Balances
+      description: An array of account balances by account ID.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: An array of items, one for each of the `?accounts=` in the request,
+                returned in the same order.
+              type: array
+              maxItems: 10000
+              items:
+                $ref: '#/components/schemas/accountBalance'
+      example:
+        items:
+          - id: '05d00d7d-d630'
+            available: '3208.20'
+            current: '3448.72'
+            currentWithPending: '3448.72'
+            updatedAt: '2022-05-02T06:51:19.375Z'
+            incomplete: false
+          - id: 'cb5d67ea-a5c3'
+            available: '1750.80'
+            current: '1956.19'
+            currentWithPending: '1956.19'
+            updatedAt: '2022-05-02T06:51:19.375Z'
+            incomplete: false
+
+    incompleteAccountBalances:
+      x-apiture-version: 1.2.0
+      title: Incomplete Account Balance
+      description: >-
+        An array of account balances by account ID, some of which are incomplete.
+        Use the values in `incompleteAccounts` and `retryCount` to retry
+        the [`listAccountBalances`](#op-listAccountBalances) operation.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - items
+            - incompleteAccounts
+            - retryCount
+          properties:
+            items:
+              description: >-
+                An array of items, one for each of the `?accounts=` in the request,
+                returned in the same order.
+              type: array
+              maxItems: 256
+              items:
+                $ref: '#/components/schemas/accountBalance'
+            incompleteAccounts:
+              description: >-
+                Pass these values as the `?accounts=` query parameter on the next retry
+                of the [`listAccountBalances`](#op-listAccountBalances) operation. This value is empty if the client
+                has reached the retry limit.
+              $ref: '#/components/schemas/accountIds'
+            retryCount:
+              description: >-
+                Pass this value as the as the `?retryCount=` parameter with the next retry
+                of the [`listAccountBalances`](#op-listAccountBalances) operation.
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 10
+      example:
+        # default
+        items:
+          - id: 05d00d7d-d630
+            available: '3208.20'
+            current: '3448.72'
+            currentWithPending: '3448.72'
+            updatedAt: '2022-05-02T06:51:19.375Z'
+            incomplete: false
+          - id: cb5d67ea-a5c3
+            available: '1750.80'
+            current: '1956.19'
+            currentWithPending: '1956.19'
+            updatedAt: '2022-05-02T06:51:19.375Z'
+            incomplete: false
+          - id: b5a4f178-2baf
+            incomplete: true
+          - id: 959908db-fd40
+            incomplete: true
+          - id: 97e6166a-2a4c
+            incomplete: true
+        incompleteAccounts:
+          - b5a4f178-2baf
+          - 959908db-fd40
+          - 97e6166a-2a4c
+        retryCount: 1
+
+    accountBalance:
+      title: Account Balance
+      description: The current balances of the given account.
+      type: object
+      required:
+        - id
+        - incomplete
+      properties:
+        id:
+          description: The account ID.
+          $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+        available:
+          description: >-
+            The available balance: the funds available for use.
+            This is the string representation of the exact decimal amount.
+          readOnly: true
+          allOf:
+            - $ref: '../common/openapi.yaml#/components/schemas/creditOrDebitValue'
+        current:
+          description: >-
+            The current balance. This is the balance at the end of the
+            previous business day.
+            This is the string representation of the exact decimal amount.
+          readOnly: true
+          allOf:
+            - $ref: '../common/openapi.yaml#/components/schemas/creditOrDebitValue'
+        updatedAt:
+          description: The time when the balance values were last updated from the banking core.
+          $ref: '../common/openapi.yaml#/components/schemas/readOnlyTimestamp'
+        currentWithPending:
+          description: >-
+            The current balance, with posted transactions.
+            This is the string representation of the exact decimal amount.
+          readOnly: true
+          allOf:
+            - $ref: '../common/openapi.yaml#/components/schemas/creditOrDebitValue'
+        incomplete:
+          description: If `true`, the response is incomplete and the client
+            may retry the operation after the `Retry-After` time in order to
+            fetch balances for any incomplete accounts in the `items`.
+            The retry operation should only pass in accounts that are `incomplete`.
+          type: boolean
+      examples:
+        - id: '05d00d7d-d630'
+          available: '3208.20'
+          current: '3448.72'
+          currentWithPending: '3448.72'
+          updatedAt: '2022-05-02T06:51:19.375Z'
+          incomplete: false
+    accountJointOwner:
+      x-apiture-version: 1.1.0
+      title: Account Joint Owner
+      description: Representation of account joint owner resources.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - type: object
+          required:
+            - id
+            - name
+          properties:
+            id:
+              $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+            name:
+              description: The full name of the joint owner.
+              type: string
+              maxLength: 50
+              format: text
+      example:
+        id: 0399abed-fd3d
+        name: Max Pike
+
+    accountJointOwners:
+      x-apiture-version: 1.2.0
+      title: Account Joint Owner Collection
+      description: >-
+        Collection of account joint owners. The items in the collection are
+        ordered in the `items` array.
+      allOf:
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: An array containing account joint owner items.
+              type: array
+              maxItems: 15
+              items:
+                $ref: '#/components/schemas/accountJointOwner'
+      example:
+        items:
+          - id: db821618461ade2c5e45
+            name: Max Pike
+          - id: 1ef8f2bdfc729ea2b80b
+            name: Sam K. Pike
+
+    jointOwnerInvitationFields:
+      x-apiture-version: 2.0.0
+      title: Joint Owner Invitation Fields
+      description: Fields used to compose other joint owner invitation schemas.
+      type: object
+      required:
+        - firstName
+        - lastName
+        - identification
+        - sharedSecret
+        - emailAddress
+        - taxId
+        - birthdate
+      properties:
+        firstName:
+          description: The invitee's first name.
+          type: string
+          minLength: 1
+          maxLength: 32
+          format: text
+        lastName:
+          description: The invitee's last name name.
+          type: string
+          minLength: 1
+          maxLength: 32
+          format: text
+        taxId:
+          description: The last 4 digits of the invitee's tax ID number (Social Security Number).
+            This is not sent in the invitation email, but if the invitee enrolls in digital
+            banking, this identification must match the last four digits of the tax ID
+            they use to enroll.
+          type: string
+          maxLength: 4
+          minLength: 4
+          pattern: ^[0-9]{4}$
+        birthdate:
+          description: >-
+            The birthdate of the invitee, in [RFC 3339](https://tools.ietf.org/html/rfc3339)
+            `YYYY-MM-DD` `date` format.
+            This is not sent in the invitation email, but if the invitee enrolls in digital
+            banking, this identification must match the birthdate they use to enroll.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+        sharedSecret:
+          description: A string shared by the inviter with the invitee to verify their
+            identity. This is not sent in the invitation. The inviter should share this
+            string with the invitee though another channel.
+          type: string
+          minLength: 8
+          maxLength: 100
+          format: text
+        emailAddress:
+          description: The invitee's email address.
+          type: string
+          format: email
+          maxLength: 80
+
+    newJointOwnerInvitation:
+      x-apiture-version: 2.0.0
+      title: New Joint Owner Invitation
+      description: A request to create an invitation to add a new joint owner to an account.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/jointOwnerInvitationFields'
+      example:
+        firstName: Mary
+        lastName: Jones
+        identification: '3333'
+        sharedSecret: obsolete obese octopus
+        emailAddress: Mary.Jones@example.com
+        birthdate: '2000-04-10'
+
+    jointOwnerInvitation:
+      x-apiture-version: 2.0.0
+      title: Joint Owner Invitation
+      description: A joint owner invitation.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/jointOwnerInvitationFields'
+        - type: object
+          required:
+            - id
+          properties:
+            id:
+              description: The unique ID of the invitation.
+              $ref: '../common/openapi.yaml#/components/schemas/readOnlyResourceId'
+
+      example:
+        id: db4f580290d3e07bf55d
+        firstName: Mary
+        lastName: Jones
+        identification: '3333'
+        sharedSecret: obsolete obese octopus
+        emailAddress: Mary.Jones@example.com
+        birthdate: '2000-04-10'
+
+  x-apiture-errors:
+    invalidAccountId:
+      x-apiture-version: 0.2.0
+      description: The named `accountId` does not exist or the user is not entitled to access the account.
+      remediation: Pass the `id` of an existing account the caller has access to.
+    overdraftAccountNotEligible:
+      description: The named account is not eligible as an overdraft protection account.
+      remediation: Use an account from the `listEligibleOverdraftAccounts` response for the protected account.
+    duplicateOverdraftAccounts:
+      description: The `items` in the request list the same account `id` more than once.
+      remediation: Use eligible unique accounts only.
+    tooManyOverdraftAccounts:
+      description: The `items` in the request contains more than `maximumOverdraftAccounts` items.
+      remediation: Specify at most `maximumOverdraftAccounts` items in the request.
+
+x-apiture-traits:
+  - api:
+      title: Customer Accounts
+      basePath: /banking/accounts
+      applied: true
+      links: []
+  - resource:
+      name: account joint owner
+      pathPrefix: /accounts/{accountId}
+      immutable: true
+      excludeMethods: [get, patch]
+      cursorPaged: false
+      applied: true
+  - singleton:
+      name: overdraft protection
+      pathPrefix: /accounts/{accountId}
+      simpleModelSchema: true
+      cursorPaged: false
+      applied: true
+  - security:
+      baseScope: banking
+      applied: true

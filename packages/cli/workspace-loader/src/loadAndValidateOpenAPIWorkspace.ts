@@ -8,12 +8,12 @@ export async function loadAndValidateOpenAPIDefinition(
 ): Promise<OpenAPIDefinition> {
     let openAPIFile: undefined | OpenAPIFile = undefined;
     const subDirectories: OpenAPIDefinition[] = [];
-    const files = await readdir(absolutePathToOpenAPI);
+    const files = await readdir(join(absolutePathToOpenAPI, ...parentFolders));
     for (const file of files) {
         const absoluteFilepath = join(absolutePathToOpenAPI, ...parentFolders, RelativeFilePath.of(file));
         const stats = await lstat(absoluteFilepath);
         if (stats.isDirectory()) {
-            const subDirectory = await loadAndValidateOpenAPIDefinition(absoluteFilepath, [
+            const subDirectory = await loadAndValidateOpenAPIDefinition(absolutePathToOpenAPI, [
                 ...parentFolders,
                 RelativeFilePath.of(file),
             ]);

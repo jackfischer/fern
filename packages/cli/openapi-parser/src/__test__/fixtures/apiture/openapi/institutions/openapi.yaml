@@ -1,0 +1,866 @@
+openapi: 3.1.0
+
+info:
+  title: Institutions
+  description: >-
+    Operations related to bank and credit union financial institutions (FIs).
+    This API provides the following features
+
+      1. [Calculating upcoming dates](#op-listTransferSchedule) for transfer schedules, factoring in weekends, non-business days, and
+      banking holidays as determined by the institution,
+      1. Provide a [list of transfer date restrictions](#op-getTransferDateRestrictions):
+      dates when users should not schedule transfers, based on transfer parameters,
+      1. [Look up a financial institution](#op-lookUpInstitutionByLocator) by an FI locator value: either an ABA routing and transit number,
+      an IBAN account number, or a SWIFT/BIC code,
+      1. [Fetching Cutoff times for FI money movement requests](#op-getCutoffTimes).
+
+    Some of the operations in this API require an `institutionId` path parameter.
+    This is the unique alphanumeric code that uniquely identifies a financial institution.
+
+  version: 0.8.0
+  contact:
+    name: Apiture
+    url: https://developer.apiture.com/help/support/
+    email: api@apiture.com
+  termsOfService: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+  license:
+    name: Apiture API License
+    url: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+x-apiture-namespace: bankingInstitutions
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Institutions
+    description: Banking Institutions
+  - name: Schedules
+    description: Schedules
+
+paths:
+  '/institutionByLocator':
+    get:
+      summary: Look up institution by routing number, IBAN, or SWIFT/BIC code
+      description: Look up a financial institution by their country code and either
+        [American Bankers Association routing number](https://www.aba.com/about-us/routing-number),
+        by [International Bank Account Number (IBAN)](https://www.ecbs.org/iban.htm),
+        or by [SWIFT Business Identifier Code (BIC) code](https://www.swift.com/standards/data-standards/bic-business-identifier-code).
+        Optionally, include a list of intermediary institutions that may
+        be necessary to complete international wire transfers.
+      operationId: lookUpInstitutionByLocator
+      x-apiture-group: institutions
+      tags:
+        - Institutions
+      parameters:
+        - name: locator
+          description: The financial institution lookup key (routing number, IBAN, or SWIFT/BIC),
+            as indicated by the `locatorType` query parameter.
+          required: true
+          in: query
+          schema:
+            type: string
+            maxLength: 36
+            format: text
+        - name: locatorType
+          description: Indicates what type of value the `locator` query parameter is.
+          required: true
+          in: query
+          schema:
+            $ref: '#/components/schemas/institutionLocatorType'
+        - name: countryCode
+          description: The country code in which to search for institutions.
+            For the US, the `locatorType` must be `abaRoutingNumber`. For non-US
+            countries, the `locatorType` must be `swiftBicCode` or `ibanAccountNumber`.
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2
+            pattern: '^[A-Z]{2}$'
+            description: >-
+              The [ISO-3611 alpha-2](https://www.iso.org/glossary-for-iso-3166.html)
+              value for the country associated with the financial institution.
+            examples:
+              - US
+              - CA
+        - name: includeIntermediaryInstitutions
+          description: If looking up a beneficiary institution for a wire transfer beneficiary institution,
+            request the response also include a list of intermediary institutions.
+          in: query
+          schema:
+            type: boolean
+      security:
+        - accessToken:
+            - data/read
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/institutionLookupResult'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '422':
+          description: >-
+            Unprocessable Entity. The request body and/or query parameters were
+            well formed but otherwise invalid.
+          x-apiture-errors:
+            - invalidLocator
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+
+  '/institutions/{institutionId}/transferSchedule':
+    get:
+      summary: Return this institution's list of upcoming transfer schedule dates
+      description: >-
+        Return a transfer schedule list for this institution.
+      operationId: listTransferSchedule
+      x-apiture-group: institutions
+      tags:
+        - Schedules
+      parameters:
+        - $ref: '#/components/parameters/institutionIdPathParam'
+        - name: startsOn
+          in: query
+          description: >-
+            The date to use to begin calculations of the transfer schedule
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+          required: true
+          schema:
+            type: string
+            format: date
+            minLength: 10
+            maxLength: 10
+            example: '2022-07-04'
+        - name: endsOn
+          in: query
+          description: >-
+            The date to use to conclude calculations of the transfer schedule
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+          required: false
+          schema:
+            type: string
+            format: date
+            minLength: 10
+            maxLength: 10
+            example: '2022-07-04'
+        - name: direction
+          in: query
+          description: >-
+            The direction of the transfer from the institution to the customer used for adjusting
+            transfer dates due to banking holidays. For `debit`, dates are adjusted to the next
+            business day. For `credit`, dates are adjusted to the previous business day.
+          required: true
+          schema:
+            $ref: '#/components/schemas/transferScheduleDirection'
+        - name: count
+          in: query
+          description: >-
+            The maximum amount of dates to calculate and include in the response. If an end date
+            is provided, the total count may be lower than the requested count.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 12
+            default: 6
+        - name: frequency
+          in: query
+          description: >-
+            The interval at which the money movement recurs.
+          required: true
+          schema:
+            $ref: '../common/openapi.yaml#/components/schemas/transferFrequency'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transferSchedules'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          $ref: '../common/openapi.yaml#/components/responses/404'
+        '422':
+          description: >-
+            Unprocessable Entity. The request body and/or query parameters were
+            well formed but otherwise invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+      security:
+        - accessToken:
+            - data/read
+
+  '/institutions/{institutionId}/cutoffTimes':
+    get:
+      summary: Return the financial institution's cutoff times for products
+      description: >-
+        Return daily cutoff times for different money movement processes at a financial institution.
+        Money movement requests (account to account transfers, ACH,
+        wire transfers, etc.) must be submitted before the cutoff time in order for the
+        financial institution to begin processing the request that day. Some
+        [cutoff time types](#schema-cutoffTimeType) may have multiple cutoff times
+        per day.
+
+
+        Cutoff times are very slowly changing data.
+        This is a _conditional operation_ when the `If-None-Match` header is used. If the client has a
+        `getCutoffTimes` response and the `ETag` returned from a previous call to this operation,
+        this operation returns a 304 Not Modified when called again if the cutoff times have not changed.
+      operationId: getCutoffTimes
+      x-apiture-group: institutions
+      tags:
+        - Schedules
+      parameters:
+        - $ref: '#/components/parameters/institutionIdPathParam'
+        - name: timeZoneId
+          description: >-
+            Identifies the time zone for formatting time values in the response. If omitted,
+            time values are formatting in the local timezone of the financial institution.
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/timeZoneId'
+        - $ref: '../common/openapi.yaml#/components/parameters/ifNoneMatchHeaderParam'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/cutoffTimes'
+          headers:
+            ETag:
+              $ref: '../common/openapi.yaml#/components/headers/ETag'
+        '304':
+          $ref: '../common/openapi.yaml#/components/responses/304'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          $ref: '../common/openapi.yaml#/components/responses/404'
+        '412':
+          $ref: '../common/openapi.yaml#/components/responses/412'
+        '422':
+          description: >-
+            Unprocessable Entity. The request body and/or query parameters were
+            well formed but otherwise invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+      security:
+        - accessToken:
+            - data/read
+
+  '/institutions/{institutionId}/transferDateRestrictions':
+    get:
+      summary: Return the financial institution's transfer dates restrictions
+      description: >-
+        Return the transfer date restrictions for a date range and
+        transfer parameters. The result is a list of days and dates that the
+        financial institution does not allow scheduling specific types of transfers.
+
+
+        This information provides hints to clients, allowing bank customers
+        to select transfer dates from a calendar picker. However, these dates
+        are not strictly enforced; a transfer can still be scheduled to occur
+        on restricted dates but the financial institution may shift the date when
+        funds are drafted to account for holidays, closures, or to adjust based
+        on the risk level of the funding account.
+      operationId: getTransferDateRestrictions
+      x-apiture-group: institutions
+      tags:
+        - Schedules
+      security:
+        - apiKey: []
+      x-apiture-implemented: true
+      parameters:
+        - $ref: '#/components/parameters/institutionIdPathParam'
+        - name: startsOn
+          in: query
+          description: >-
+            The start of the range of dates to include in the response,
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+            While start dates far in the future are allowed, bank holiday schedules are only
+            available for a small number of years ahead.
+            The default is the current date.
+          schema:
+            type: string
+            format: date
+            minLength: 10
+            maxLength: 10
+            example: '2022-07-04'
+        - name: endsOn
+          in: query
+          description: >-
+            The end of the range of dates to include in the response.
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+            The default is at least one year from the `startOn` date and is limited
+            to a four year interval.
+          required: false
+          schema:
+            type: string
+            format: date
+            minLength: 10
+            maxLength: 10
+            example: '2022-07-04'
+        - name: type
+          in: query
+          description: >-
+            Describes the type of transfer.
+            This determines what business rules and adjustments to make to the date restrictions.
+            Note ACH transfers (including CTX and PPD), that `Credit` and `Debit` here are relative
+            to the account at the _external_ financial institution.
+          schema:
+            $ref: '#/components/schemas/transferTypeForDateRestrictions'
+        - name: risk
+          in: query
+          description: >-
+            The primary account's risk level.
+            This determines what business rules and adjustments to make to the date restrictions.
+            This parameter only applies to ACH credit transfers (funds credited to an external account)
+            and is ignored for others.
+          schema:
+            $ref: '../common/openapi.yaml#/components/schemas/achAccountRisk'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transferDateRestrictions'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          $ref: '../common/openapi.yaml#/components/responses/404'
+        '422':
+          description: >-
+            Unprocessable Entity.
+            The request body and/or query parameters were well-formed but otherwise invalid.
+          x-apiture-errors:
+            - invalidRestrictionDateRange
+            - restrictionDateRangeTooLarge
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+
+components:
+  parameters:
+    institutionIdPathParam:
+      name: institutionId
+      description: The unique identifier of a financial institution.
+      in: path
+      required: true
+      schema:
+        $ref: '../common/openapi.yaml#/components/schemas/institutionId'
+
+  schemas:
+    institutionLocatorType:
+      title: institution Locator Type
+      description: Indicates the type of the institution `locator`.
+      x-apiture-enum: institutionLocatorType
+      type: string
+      enum:
+        - abaRoutingNumber
+        - swiftBicCode
+        - ibanAccountNumber
+
+    simpleInstitution:
+      x-apiture-version: 1.1.0
+      title: Simple Institution
+      description: A simple representation of a financial institution.
+      type: object
+      required:
+        - name
+        - address
+        - locatorType
+        - locator
+      properties:
+        name:
+          description: >-
+            The financial institution's name.
+          type: string
+          maxLength: 35
+          format: text
+        address:
+          description: >-
+            The financial institution's postal mailing address.
+          $ref: '../common/openapi.yaml#/components/schemas/address'
+        locator:
+          description: >-
+            The [American Bankers Association routing number](https://www.aba.com/about-us/routingnumber),
+            [SWIFT Business Identifier Code (BIC) code](https://www.swift.com/standards/data-standards/bic-business-identifier-code), or
+            [IBAN account number](https://www.ecbs.org/iban.htm) of the institution.
+            The form of this institution locator string is set with the `locatorType` property.
+          type: string
+          maxLength: 36
+          format: text
+        locatorType:
+          description: Indicates the type of this institution's `locator`.
+          $ref: '#/components/schemas/institutionLocatorType'
+      example:
+        name: First Bank of Andalasia
+        address:
+          address1: 239 West Princess Ave.
+          locality: Andalasia
+          regionCode: NC
+          countryCode: US
+          postalCode: '28407'
+        locator: '503000196'
+        locatorType: abaRoutingNumber
+
+    wireTransferInstitution:
+      x-apiture-version: 1.1.0
+      title: Wire Transfer Institution
+      description: A representation of a financial institution used for wire transfers.
+      type: object
+      required:
+        - name
+        - address
+        - locatorType
+        - locator
+      allOf:
+        - $ref: '#/components/schemas/simpleInstitution'
+        - type: object
+          properties:
+            localClearingCode:
+              description: >-
+                The clearing code used to identify the financial institution for select countries.
+              type: string
+              format: '[a-zA-Z0-9]{3,12}'
+              minLength: 3
+              maxLength: 12
+              example: 'ATBLZ12345'
+      example:
+        name: First Bank of Andalasia
+        address:
+          address1: 239 West Princess Ave.
+          locality: Andalasia
+          regionCode: NC
+          countryCode: US
+          postalCode: '28407'
+        locator: '503000196'
+        locatorType: abaRoutingNumber
+
+    institutionLookupResult:
+      x-apiture-version: 1.1.0
+      title: Institution Lookup Result
+      description: Successful institution lookup result.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - found
+          properties:
+            found:
+              description: >-
+                `true` if a financial institution was found matching the requested FI locator,
+                `false` if none was found.
+              type: boolean
+            institution:
+              description: The name and other information about the financial institution, if found.
+              $ref: '#/components/schemas/simpleInstitution'
+            intermediaryInstitutions:
+              description: Optional intermediary institutions, if requested and if intermediary institutions are
+                required for for international wire transfers to the beneficiary institution.
+                This array is omitted if there none are required.
+              type: array
+              minItems: 1
+              maxItems: 8
+              items:
+                $ref: '#/components/schemas/simpleInstitution'
+      example:
+        found: true
+        institution:
+          name: First Bank of Andalasia
+          address:
+            address1: 239 West Princess Ave.
+            locality: Andalasia
+            regionCode: NC
+            countryCode: US
+            postalCode: '28407'
+          locator: '503000196'
+          locatorType: abaRoutingNumber
+
+    cutoffTimes:
+      title: Cutoff Times
+      description: >-
+        A representation of financial institution cutoff times for different money movement processes. A
+        money movement process can have multiple cutoff times. The cutoff times are sorted in ascending
+        chronological order by money movement process.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - timeZoneId
+            - items
+          properties:
+            timeZoneId:
+              description: >-
+                The identifier of the time zone for which all of the `items[].time` are returned in.
+
+                The client can use this value to localize the `items[].time` values to the local time zone of the customer,
+                as well as for formatting to localized names, such as `EST` and `EDT`.
+              $ref: '#/components/schemas/timeZoneId'
+            items:
+              description: A list of cutoff times for a financial institution.
+              type: array
+              maxItems: 50
+              items:
+                $ref: '#/components/schemas/cutoffTime'
+      example:
+        timeZoneId: 'America/New_York'
+        items:
+          - type: ach
+            time: '13:45'
+          - type: ach
+            time: '16:45'
+          - type: sameDayAch
+            time: '16:45'
+          - type: domesticWireTransfer
+            time: '16:45'
+
+    timeZoneId:
+      description: >-
+        The identifier of a time zone, as described by [RFC 7808](https://datatracker.ietf.org/doc/html/rfc7808.html#section-3.6).
+        This value corresponds with the `tzid` value described in [RFC 5545](https://datatracker.ietf.org/doc/html/rfc5545#section-3.2.19)
+        and defined by the [IANA Time Zone Database](https://www.iana.org/time-zones).
+      type: string
+      pattern: '^America\/[a-zA-Z_]+(?:\/[a-zA-Z_]+)*'
+      maxLength: 36
+      examples:
+        - America/New_York
+        - America/Chicago
+        - America/Indiana/Petersburg
+
+    cutoffTime:
+      title: Cutoff Time
+      description: A representation of a cutoff time for a money movement process at a financial institution.
+      type: object
+      required:
+        - type
+        - time
+      properties:
+        type:
+          $ref: '#/components/schemas/cutoffTimeType'
+        time:
+          description: >-
+            The cutoff time for a product formatted in [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) `time`
+            format: `hh:mm`. The time is expressed in 24 hour time and is set to the local time
+            zone of the financial institution.
+          type: string
+          pattern: '^(?<hour>[0-2][0-9]):(?<minute>[0-5][0-9])$'
+          example: '16:45'
+          minLength: 5
+          maxLength: 5
+      example:
+        type: ach
+        time: '16:45'
+
+    cutoffTimeType:
+      title: Cutoff type Type
+      description: Indicates the type of a cutoff time.
+      type: string
+      x-apiture-enum: cutoffTimeType
+      enum:
+        - ach
+        - sameDayAch
+        - domesticWireTransfer
+        - internationalWireTransfer
+        - internalTransfer
+        - externalTransfer
+        - billPay
+
+    transferScheduleDirection:
+      x-apiture-version: 1.0.0
+      title: Transfer Schedule Direction
+      description: >-
+        Provides the direction in which a transfer flows.
+      type: string
+      x-apiture-enum: transferScheduleDirection
+      enum:
+        - debit
+        - credit
+        - both
+
+    transferSchedules:
+      x-apiture-version: 1.0.0
+      title: Transfer Schedule List
+      description: >-
+        List of transfer methods. The items in the list are ordered in the
+        `items` array.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: >-
+                An array containing upcoming transfer schedule items.
+              type: array
+              maxItems: 1000
+              items:
+                $ref: '#/components/schemas/transferScheduleItem'
+      example:
+        items:
+          - scheduledOn: '2022-06-27'
+            effectiveOn: '2022-06-27'
+          - scheduledOn: '2022-07-04'
+            effectiveOn: '2022-07-05'
+          - scheduledOn: '2022-07-11'
+            effectiveOn: '2022-07-11'
+          - scheduledOn: '2022-07-18'
+            effectiveOn: '2022-07-18'
+          - scheduledOn: '2022-07-25'
+            effectiveOn: '2022-07-25'
+          - scheduledOn: '2022-08-01'
+            effectiveOn: '2022-07-01'
+
+    transferScheduleItem:
+      x-apiture-version: 1.0.0
+      title: Transfer Schedule Item
+      description: >-
+        Summary representation of a transfer schedule resource in
+        transfer schedule list.
+      required:
+        - scheduledOn
+        - effectiveOn
+      type: object
+      properties:
+        scheduledOn:
+          description: >-
+            The scheduled date of the calculated calendar recurrence in `YYYY-MM-DD`
+            [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+          type: string
+          format: date
+          example: '2022-07-04'
+          minLength: 10
+          maxLength: 10
+        effectiveOn:
+          description: >-
+            The effective date of the recurrence in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date
+            format. When the effective date differs from the scheduled date, it is due to a banking holiday, weekend,
+            or other non-business day. The date is adjusted to before the scheduled date when the transfer direction
+            is `credit` and adjusted to after the scheduled date when the transfer direction is `debit`.
+          type: string
+          format: date
+          example: '2022-07-05'
+          minLength: 10
+          maxLength: 10
+      examples:
+        - scheduledOn: '2022-07-04'
+          effectiveOn: '2022-07-05'
+
+    transferDateRestrictionType:
+      title: Transfer Date Restriction Type
+      description: Indicates why a transfer date is restricted.
+      type: string
+      x-apiture-enum: transferDateRestrictionType
+      enum:
+        - pastDate
+        - pastCutoffTime
+        - riskRestricted
+        - holiday
+        - closure
+        - other
+
+    transferTypeForDateRestrictions:
+      title: Transfer Restriction Transfer Type
+      description: Indicates the type of transfer. This determines what business rules
+        and adjustments to make to the date restrictions.
+      type: string
+      x-apiture-enum: transferTypeForDateRestrictions
+      enum:
+        - internal
+        - ach
+        - achDebit
+        - achCredit
+        - domesticWireTransfer
+        - internationalWireTransfer
+      default: internal
+
+    transferDateRestrictions:
+      title: Transfer Date Restrictions
+      description: A list of the financial institution's transfer date restrictions.
+        This is a list of weekdays and specific dates when the institution cannot perform
+        the requested transfers.
+
+        The response may include dates prior to requested the start date, as that is useful for populating
+        a calendar that shows the current month and the last few days of the previous month.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          properties:
+            restrictedDates:
+              description: A list of restricted transfer dates
+                as determined by the requested transfer parameters, holidays, and scheduled closures.
+                This includes dates that correspond to normal day-of-week restrictions
+                as listed in `restrictedDays`.
+              type: array
+              maxItems: 500
+              items:
+                $ref: '#/components/schemas/transferDateRestriction'
+            accuracyEndsOn:
+              description: >-
+                The service only knows [bank holidays](https://www.federalreserve.gov/aboutthefed/k8.htm)
+                for about two to four years in advance.
+                This date is the end of that known holiday schedule, although the requested dates
+                may extend well beyond this date. Any dates in the response beyond this date
+                may omit holidays but may include other restricted dates based on the financial institution's
+                normal scheduled closures such as Saturdays and Sundays.
+              type: string
+              format: date
+              minLength: 10
+              maxLength: 10
+      example:
+        restrictedDates:
+          - occursOn: '2022-10-01'
+            reason: pastDate
+          - occursOn: '2022-10-02'
+            reason: pastDate
+          - occursOn: '2022-10-03'
+            reason: pastDate
+          - occursOn: '2022-10-04'
+            reason: pastDate
+          - occursOn: '2022-10-05'
+            reason: pastCutoffTime
+          - occursOn: '2022-10-06'
+            reason: riskRestricted
+          - occursOn: '2022-10-07'
+            reason: riskRestricted
+          - occursOn: '2022-10-08'
+            reason: closure
+            debitsOn: 2022-10-07
+          - occursOn: '2022-10-09'
+            reason: closure
+            debitsOn: 2022-10-07
+          - occursOn: '2022-10-10'
+            reason: holiday
+            debitsOn: 2022-10-07
+          - occursOn: '2022-10-15'
+            reason: closure
+            debitsOn: 2022-10-14
+          - occursOn: '2022-10-16'
+            reason: closure
+            debitsOn: 2022-10-14
+          - occursOn: '2022-10-22'
+            reason: closure
+            debitsOn: 2022-10-21
+          - occursOn: '2022-10-23'
+            reason: closure
+            debitsOn: 2022-10-21
+          - occursOn: '2022-10-29'
+            reason: closure
+            debitsOn: 2022-10-28
+          - occursOn: '2022-10-30'
+            reason: closure
+            debitsOn: 2022-10-28
+        accuracyEndsOn: 2026-12-31
+
+    transferDateRestriction:
+      title: Transfer Date Restriction
+      description: >-
+        A date where a transfer restriction occurs, and the `reason` it is restricted.
+        If the `reason` is `holiday`, `closure` and the transfer is an ACH transfer, the object also contains
+        either a `debitOn` or `creditOn` date or both.
+      type: object
+      required:
+        - occursOn
+        - reason
+      additionalProperties: false
+      properties:
+        occursOn:
+          description: The date that a transfers restriction occurs, is in the [ISO 8601
+            Date](https://en.wikipedia.org/wiki/ISO_8601#Calendar_dates) format,
+            `yyyy-mm-dd`.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+          example: '2019-04-05'
+        reason:
+          description: Indicates why this date is restricted.
+          $ref: '#/components/schemas/transferDateRestrictionType'
+        creditOn:
+          description: >-
+            The date the local financial institution account is credited in [RFC 3339
+            `YYYY-MM-DD`](https://tools.ietf.org/html/rfc3339) date format. This is derived from the `date`
+            based on the `risk` level. The credit-on date normally falls one business day after the restricted
+            `date`. This property is only returned if the payment `type` is `achDebit` or `ach`.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+          example: '2022-07-05'
+        debitOn:
+          description: >-
+            The date the local financial institution account is debited in [RFC 3339
+            `YYYY-MM-DD`](https://tools.ietf.org/html/rfc3339) date format. This is derived from the `date`
+            based on the `risk` level and the transfer direction (`achDebit` or `achCredit`). The debit-on date
+            normally falls one to three business days before the restricted `date`. This property is only
+            returned if the payment `type` is `achCredit` or `ach`.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+          example: '2022-07-05'
+      example:
+        occursOn: '2022-10-10'
+        reason: holiday
+        debitOn: '2022-10-07'
+
+  securitySchemes:
+    apiKey:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/apiKey'
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+  x-apiture-errors:
+    invalidLocator:
+      description: The `locator` value is invalid for the given `locatorType`.
+      remediation: Pass a valid ABA routing number, IBAN number, or SWIFT/BIC code, as per the given `locatorType`.
+    restrictionDateRangeTooLarge:
+      description: The `endOn` is limited to four years after the `startOn` date
+      remediation: Limit the `endOn` date to no more than four years after the `startOn` date
+    invalidRestrictionDateRange:
+      description: The `startOn` date should be the current day or later,
+        and the `endOn` date must fall after the `startOn` date
+      remediation: Pass valid values for `startOn` and `endOn`

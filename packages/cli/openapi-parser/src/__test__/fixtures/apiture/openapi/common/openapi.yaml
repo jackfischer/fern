@@ -1,0 +1,1595 @@
+openapi: 3.1.0
+
+info:
+  title: Common API Components
+  description: API components (schemas, parameters, responses) shared across Apiture APIs.
+  version: 0.19.1
+  contact:
+    name: Apiture
+    url: 'https://developer.apiture.com/help/support'
+    email: api@apiture.com
+  termsOfService: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+  license:
+    name: Apiture API License
+    url: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+x-apiture-namespace: bankingCommon
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Common Components
+    description: Common Reusable API Components
+
+paths: {}
+
+components:
+  parameters:
+    institutionIdHeaderParam:
+      name: Institution-Id
+      description: >-
+        The unique identifier of the financial institution.
+      in: header
+      schema:
+        $ref: '#/components/schemas/institutionId'
+
+    startQueryParam:
+      name: start
+      in: query
+      description: >-
+        The location of the next item in the collection.
+        This is an opaque cursor supplied by the API service.
+        Omit this to start at the beginning of the collection.
+        The client does not define this value; the API services
+        automatically pass the `?start=` parameter on the
+        `nextPage_url`.
+      schema:
+        type: string
+        maxLength: 256
+        pattern: '^[-a-zA-Z0-9.,-=_+:;@$]{0,256}$'
+        default: ''
+
+    startIndexQueryParam:
+      name: start
+      in: query
+      description: >-
+        The zero-based index of the first {{item}} item to include in this page.
+        Omit this or pass 0 to start at the beginning of the collection.
+        The services automatically passes the `?start=` parameter on the
+        `nextPage_url`.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        maximum: 4000000000
+        default: 0
+
+    limitQueryParam:
+      name: limit
+      in: query
+      description: The maximum number of items to return in this paged response.
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        maximum: 1000
+        default: 100
+
+    sortByQueryParam:
+      in: query
+      name: sortBy
+      schema:
+        type: string
+        format: text
+        maxLength: 120
+      description: >-
+        Optional sort criteria. See [sort criteria format](https://developer.apiture.com/docs/concepts/sorting),
+        such as `?sortBy=field1,-field2`.
+
+    acceptLanguageHeaderParam:
+      name: Accept-Language
+      in: header
+      schema:
+        type: string
+        format: text
+        maxLength: 128
+      description: >-
+        The weighted language tags which indicate the user's preferred
+        natural language for the localized labels in the response,
+        as per [RFC 7231](https://tools.ietf.org/html/rfc7231#section-5.3.5).
+
+    idempotencyKeyHeaderParam:
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+        maxLength: 255
+        pattern: '^[-a-zA-Z0-9_\.\$\:\~\+\=]{1,255}$'
+      description: >-
+        A key to ensure operations are only processed once even if a client retries the operation.
+        The V4 UUID format, as defined in [RFC 4122](https://tools.ietf.org/html/rfc4122), is
+        recommended to avoid collisions but is not required.
+
+    requiredIdempotencyKeyHeaderParam:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 255
+        pattern: '^[-a-zA-Z0-9_\.\$\:\~\+\=]{1,255}$'
+      description: >-
+        A key to ensure operations are only processed once even if a client retries the operation.
+        The V4 UUID format, as defined in [RFC 4122](https://tools.ietf.org/html/rfc4122), is
+        recommended to avoid collisions but is not required.
+
+    customerIdQueryParam:
+      name: customerId
+      description: The optional identifier of a business customer.
+        This is an opaque string.
+        An agent who is operating on behalf of a business can use this to access
+        the resources of that business customer.
+        The agent must have entitlements to act on behalf of the business;
+        if not, the operation returns a 403 Forbidden response.
+        For other situations, omit this value, else this _must_
+        match the authenticated caller's customer ID (not their access ID).
+      in: query
+      schema:
+        $ref: '#/components/schemas/resourceId'
+
+    ifNoneMatchHeaderParam:
+      name: If-None-Match
+      description: The entity tag that was returned in the `ETag` response header of a previous call. If the
+        resource's current entity tag value matches this header value, the `GET` will return 304 (Not Modified)
+        and no response body, else the current resource representation and updated `ETag` is returned.
+      in: header
+      schema:
+        type: string
+        pattern: '^\P{Cc}{1,512}$'
+        maxLength: 512
+
+    ifMatchHeaderParam:
+      name: If-Match
+      description: The entity tag that was returned in the `ETag` response header of a previous call. If passed,
+        this must match the current entity tag of the resource, else the operation fails with
+        a 412 Precondition Failed error.
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 512
+        pattern: '^\P{Cc}{1,512}$'
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: API-Key
+      in: header
+      description: >-
+        API Key based client identification. See details at [Secure
+        Access](https://developer.apiture.com/docs/secure-access).
+
+    accessToken:
+      type: openIdConnect
+      description: >-
+        OpenId Connect (OIDC) authentication/authorization. The client uses the `authorization_endpoint` and `token_endpoint`
+        to obtain an access token to pass in the `Authorization` header.
+        Those endpoints are available via the OIDC Configuration URL.
+        The actual URL may vary with each financial institution.
+        See details at [Secure Access](https://dx.apiture.com/docs/secure-access).
+      openIdConnectUrl: 'https://oidc.apiture.com/oidc/.well-known/oidc-configuration'
+
+  schemas:
+    achAccountRisk:
+      title: ACH Account Risk
+      description: Describes the risk level of a payment batch's settlement account.
+      type: string
+      x-apiture-enum: achAccountRisk
+      enum:
+        - early
+        - normal
+        - float
+        - sameDay
+
+    institutionId:
+      x-apiture-version: 1.1.0
+      title: Institution ID
+      description: The unique immutable identifier of a financial institution.
+      type: string
+      pattern: '^[A-Z0-9_]{2,8}$'
+      maxLength: 8
+      minLength: 2
+      example: TIBURON
+
+    abstractBody:
+      title: Abstract Body
+      x-apiture-version: 0.2.0
+      description: An abstract schema used to define other request and response body model schemas.
+      x-apiture-fragment: true
+      type: object
+      properties: {}
+      example: {}
+
+    abstractPagedBodyFields:
+      x-apiture-version: 1.1.0
+      title: Abstract Paged Body Fields
+      description: Common properties of collection page responses.
+      x-apiture-fragment: true
+      type: object
+      required:
+        - limit
+      properties:
+        limit:
+          description: >-
+            The number of items requested for this page response.
+            The length of the `items` array may be less that `limit`.
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+          default: 100
+        nextPage_url:
+          description: The URL of the next page of resources.
+            If this URL is omitted, there are no more resources in the collection.
+          readOnly: true
+          maxLength: 8000
+          type: string
+          format: uri-reference
+          example: 'https://api.apiture.com/banking/resources/8b76b4a97dccad88890e'
+
+    abstractPagedBody:
+      title: Abstract Paged Body
+      x-apiture-version: 0.5.0
+      description: >-
+        An abstract schema used to define paginated collections of resources.
+        Collection classes which extend this schema define an array of `items`
+        which represent a page of data.
+      x-apiture-fragment: true
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/abstractBody'
+        - $ref: '#/components/schemas/abstractPagedBodyFields'
+        - type: object
+          properties:
+            start:
+              description: >-
+                The opaque cursor that specifies the starting location of this page of items.
+              type: string
+              format: text
+              maxLength: 256
+      example:
+        start: 1922a8531e8384cfa71b
+        limit: 100
+        nextPage_url: 'https://api.apiture.com/banking/resources?start=8b76b4a97dccad88890e&limit=100'
+
+    abstractIndexPagedBody:
+      title: Abstract Index Paged Body
+      x-apiture-version: 0.4.0
+      description: >-
+        An abstract schema used to define paginated collections of resources.
+        Collection classes which extend this schema define an array of `items`
+        which represent a page of data.
+      type: object
+      x-apiture-fragment: true
+      allOf:
+        - $ref: '#/components/schemas/abstractBody'
+        - $ref: '#/components/schemas/abstractPagedBodyFields'
+        - type: object
+          properties:
+            start:
+              description: >-
+                The index of the first item in this page.
+                0 represents the index of the first item in the collection.
+              type: integer
+              format: int64
+              minimum: 0
+              maximum: 4000000000
+      example:
+        nextPage_url: 'https://api.apiture.com/banking/resources?start=200&limit=100'
+        start: 100
+        limit: 100
+
+    resourceId:
+      title: Resource Identifier
+      description: >-
+        The unique, opaque system identifier for a resource.
+        This case-sensitive ID is also used as path parameters in URLs or in other
+        properties or parameters that reference a resource by ID rather than URL.
+      type: string
+      pattern: '^[-_:.~$a-zA-Z0-9]+$'
+      minLength: 6
+      maxLength: 48
+
+    readOnlyResourceId:
+      title: Read-only Resource Identifier
+      description: >-
+        The unique, opaque system-assigned identifier for a resource.
+        This case-sensitive ID is also used in URLs as path parameters or in other
+        properties or parameters that reference a resource by ID rather than URL.
+        Resource IDs are immutable.
+      readOnly: true
+      allOf:
+        - $ref: '#/components/schemas/resourceId'
+
+    nullableResourceId:
+      title: Nullable Resource Identifier
+      description: >-
+        The unique, opaque system-assigned identifier for a resource.
+        This case-sensitive ID is used in properties that reference a resource by ID
+        rather than URL. This can be used in patch operations to detach a resource.
+      type: [string, 'null']
+      pattern: '^[-_:.~$a-zA-Z0-9]+$'
+      minLength: 6
+      maxLength: 48
+
+    nullableReadOnlyResourceId:
+      title: Nullable Read-only Resource Identifier
+      description: >-
+        The unique, opaque system-assigned identifier for a resource.
+        This case-sensitive ID is used in properties that reference a resource by ID
+        rather than URL. This can be used in patch operations to detach a resource.
+        Resource IDs are immutable.
+      readOnly: true
+      allOf:
+        - $ref: '#/components/schemas/nullableResourceId'
+
+    apiProblem:
+      x-apiture-version: 1.2.0
+      title: API Problem
+      description: 'API problem or error, as per [RFC 7807 application/problem+json](https://tools.ietf.org/html/rfc7807).'
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: >
+            A [URI reference (RFC3986)](https://tools.ietf.org/html/rfc3986) that identifies the
+            problem type. If present, this is the URL of human-readable HTML documentation for the
+            problem type.
+            When this member is not present, its value is assumed to be `"about:blank"`.
+          example: 'https://api.apiture.com/errors/forbidden/v1.0.0'
+          maxLength: 2048
+        title:
+          type: string
+          description: >
+            A short, human-readable summary of the problem type.
+            The title is usually the same for all problem with the same `type`.
+          maxLength: 120
+          format: text
+          example: User is not authorized to perform the requested action or access the requested resource.
+        status:
+          type: integer
+          format: int32
+          description: >
+            The [HTTP status code](https://datatracker.ietf.org/doc/html/rfc7231#section-6)
+            for this occurrence of the problem.
+          minimum: 100
+          maximum: 599
+          example: 403
+        detail:
+          type: string
+          description: >
+            A human-readable explanation specific to this occurrence of the problem.
+          maxLength: 256
+          format: text
+          example: User is not authorized to perform this operation.
+        instance:
+          type: string
+          format: uri-reference
+          description: >
+            A URI reference that identifies the specific occurrence of the problem.
+            This is the URI of an API resource that the problem is related to,
+            with a unique error correlation ID URI fragment
+          example: 'https://prduction.api.apiture.com/banking/accounts/ad80fc3e722q5402a#189c13ff-c54c-45f7-b8e0-c88984ba724d'
+          maxLength: 2048
+        id:
+          description: >-
+            The unique identifier for this problem.
+            This is an immutable opaque string.
+          $ref: '#/components/schemas/readOnlyResourceId'
+        occurredAt:
+          description: The timestamp when the problem occurred, in
+            [RFC 3339](https://tools.ietf.org/html/rfc3339)
+            date-time `YYYY-MM-DDThh:mm:ss.sssZ` format, UTC.
+          $ref: '#/components/schemas/readOnlyTimestamp'
+        problems:
+          description: Optional root-causes if there are multiple problems in the request or API call processing.
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/apiProblem'
+        attributes:
+          type: object
+          description: Additional optional attributes related to the problem.
+            This data conforms to the schema associated with the error type.
+      example:
+        id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+        type: 'https://api.apiture.com/errors/accountNotFound/v1.0.0'
+        title: Account Not Found
+        status: 422
+        occurredAt: '2022-04-25T12:42:21.375Z'
+        detail: No account exists at the given account_url
+        instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    challengePromptId:
+      title: Challenge Prompt ID
+      description: The unique ID of a prompt (such as a security question) in a challenge factor.
+      type: string
+      pattern: '^[-_:.~$a-zA-Z0-9]+$'
+      minLength: 1
+      maxLength: 48
+
+    challengeSecurityQuestion:
+      title: Challenge Security Question
+      description: A single security question within the `questions` array of
+        the [`challengeSecurityQuestions`](#schema-challengeSecurityQuestions)
+      type: object
+      required:
+        - id
+        - prompt
+      properties:
+        id:
+          description: >-
+            The unique ID of security question prompt. This should be included in the
+            [`challengeVerification`](#schema-challengeVerification) response as the
+            `promptId`.
+          $ref: '#/components/schemas/challengePromptId'
+        prompt:
+          description: The text prompt of this security question.
+          type: string
+          format: text
+          maxLength: 50
+      example:
+        id: 74699fa628911e762ea5
+        prompt: What is your mother's maiden name?
+
+    challengeSecurityQuestions:
+      title: Challenge Security Questions
+      description: Describes a `securityQuestions` challenge.
+        This is omitted if the challenge `type` is not `securityQuestions`.
+      type: object
+      required:
+        - questions
+      properties:
+        questions:
+          description: The array of security questions.
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/challengeSecurityQuestion'
+      example:
+        questions:
+          - id: q1
+            prompt: What is your mother's maiden name?
+          - id: q4
+            prompt: What is your high school's name?
+          - id: q9
+            prompt: What is the name of your first pet?
+
+    requiredIdentityChallenge:
+      x-apiture-version: 1.1.0
+      title: Required Challenge
+      description: >-
+        A request from the service for the user to verify their identity. This contains a challenge ID, the
+        corresponding operation ID, and a list of challenge factors for identity verification. The user must
+        complete one of these challenge factors to satisfy the challenge. This schema defines the attributes in
+        the 401 [Unauthorized problem response](#schema-apiProblem) when the 401 problem type name is
+        `challengeRequired`. See the "Challenge API" for details.
+      type: object
+      required:
+        - operationId
+        - challengeId
+        - factors
+      properties:
+        operationId:
+          description: The ID of the API operation for which the user must verify their identity.
+            This is passed when starting a challenge factor or when validating the identity challenge responses.
+          $ref: '#/components/schemas/readOnlyResourceId'
+          type: string
+          pattern: '^[a-zA-Z0-9$_]+$'
+          minLength: 6
+          maxLength: 48
+        challengeId:
+          description: The unique ID of this challenge instance. This is an opaque
+            string. This is passed when starting a challenge factor or when validating the identity challenge responses.
+          $ref: '#/components/schemas/readOnlyResourceId'
+        factors:
+          description: >-
+            A list of challenge factors.
+            The user must complete one of these challenge factors.
+            The `labels` in each factor identify one or more channels the user may use, such as a list of
+            email addresses the system may use to send a one-time passcode to the user.
+            ***Note**: The same channel may be used by multiple factors in the array of factors.
+            For example, the user's primary mobile phone number may be used for both an `sms` factor and a `voice` factor.
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/challengeFactor'
+      example:
+        operationId: createTransfer
+        challengeId: 0504076c566a3cf7009c
+        factors:
+          - type: sms
+            labels: ['9876']
+          - type: voice
+            labels: ['9876']
+          - type: voice
+            labels: ['6754']
+          - type: email
+            labels: ['an****nk@example.com', 'an****98@example.com']
+          - type: authenticatorToken
+            labels: ['Acme fob']
+          - type: securityQuestions
+            securityQuestions:
+              questions:
+                - id: q1
+                  prompt: What is your mother's maiden name?
+                - id: q4
+                  prompt: What is your high school's name?
+                - id: q9
+                  prompt: What is the name of your first pet?
+
+    challengeFactorType:
+      title: Challenge Factor Type
+      description: >-
+        The name of challenge factor.
+      type: string
+      x-apiture-enum: challengeFactorType
+      enum:
+        - sms
+        - email
+        - voice
+        - securityQuestions
+        - authenticatorToken
+
+    challengeFactor:
+      x-apiture-version: 1.1.0
+      title: Challenge Factor
+      description: An challenge factor.
+        See [`requiredIdentityChallenge`](#schema-requiredIdentityChallenge)
+        for multiple examples.
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          $ref: '#/components/schemas/challengeFactorType'
+        labels:
+          description: >-
+            A list of text label which identifies the channel(s) through which the user
+            completes the challenge.
+            For an `sms` or `voice` challenge, the only label item is the last four digits of the
+            corresponding phone number.
+            For an `email` challenge, each label is the masked email address.
+          type: array
+          minItems: 1
+          maxItems: 4
+          items:
+            type: string
+            maxLength: 40
+            format: text
+        securityQuestions:
+          $ref: '#/components/schemas/challengeSecurityQuestions'
+      example:
+        type: sms
+        labels: ['9876']
+
+    problemResponse:
+      title: Problem Response
+      x-apiture-version: 0.4.0
+      description: 'API problem or error response, as per [RFC 7807 application/problem+json](https://tools.ietf.org/html/rfc7807).'
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/abstractBody'
+        - $ref: '#/components/schemas/apiProblem'
+      example:
+        id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+        type: 'https://api.apiture.com/errors/noSuchAccount/v1.0.0'
+        title: Account Not Found
+        status: 422
+        occurredAt: '2022-04-25T12:42:21.375Z'
+        detail: No account exists for the given account reference
+        instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    createdAtField:
+      description: A field used to represent the `createdAt` date-time for a resource.
+      x-apiture-fragment: true
+      type: object
+      properties:
+        createdAt:
+          description: >-
+            The date-time when this resource was created, in
+            [RFC 3339](https://tools.ietf.org/html/rfc3339)
+            date-time `YYYY-MM-DDThh:mm:ss.sssZ` format, UTC. This is derived and immutable.
+          $ref: '#/components/schemas/readOnlyTimestamp'
+
+    timestampFields:
+      x-apiture-version: 1.1.0
+      title: Timestamp Fields
+      description: Timestamps which describe when a resource was created or last updated.
+      x-apiture-fragment: true
+      allOf:
+        - $ref: '#/components/schemas/createdAtField'
+        - type: object
+          properties:
+            updatedAt:
+              description: >-
+                The date-time when the resource was last updated, in
+                [RFC 3339](https://tools.ietf.org/html/rfc3339)
+                date-time `YYYY-MM-DDThh:mm:ss.sssZ` format, UTC. This is derived and immutable.
+              $ref: '#/components/schemas/readOnlyTimestamp'
+
+    resourceUrl:
+      title: Resource URL
+      description: The URL of an API resource. The `https://hostname` portion of
+        the URL is optional but defaults to the origin URL of the API requests.
+      type: string
+      format: uri-reference
+      maxLength: 256
+
+    readOnlyResourceUrl:
+      title: Resource URL
+      description: The URL of an API resource. The `https://hostname` portion of
+        the URL is optional but defaults to the origin URL of the API requests.
+      readOnly: true
+      type: string
+      format: uri-reference
+      maxLength: 256
+
+    sortDirection:
+      title: Sort Direction
+      x-apiture-since: 0.17.0
+      description: The direction to sort by. This should be combined with a sorting field.
+      type: string
+      x-apiture-enum: sortDirection
+      enum:
+        - ascending
+        - descending
+
+    date:
+      title: Date
+      description: >-
+        A date formatted in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) `date`
+        UTC format.
+      type: string
+      minLength: 10
+      maxLength: 10
+      format: date
+      example: '2021-10-30'
+      x-apiture-since: 0.5.0
+
+    timestamp:
+      title: Timestamp
+      description: >-
+        A timestamp (an instant in time) formatted in `YYYY-MM-DDThh:mm:ss.sssZ`
+        [RFC 3339](https://tools.ietf.org/html/rfc3339) `date-time` UTC format.
+      type: string
+      minLength: 20
+      maxLength: 30
+      format: date-time
+      example: '2021-10-30T19:06:04.250Z'
+      x-apiture-since: 0.4.0
+
+    readOnlyTimestamp:
+      title: Read-Only Timestamp
+      description: >-
+        A readonly or derived timestamp (an instant in time) formatted in [RFC 3339](https://tools.ietf.org/html/rfc3339) `date-time`
+        UTC format: `YYYY-MM-DDThh:mm:ss.sssZ`.
+      type: string
+      minLength: 20
+      maxLength: 30
+      format: date-time
+      readOnly: true
+      example: '2021-10-30T19:06:04.250Z'
+      x-apiture-since: 0.4.0
+
+    monetaryValue:
+      x-apiture-version: 1.1.0
+      title: Monetary Value
+      description: >-
+        The monetary value, supporting only positive amounts. The numeric
+        value is  represented as a string so that it can be exact with no
+        loss of precision.
+      example: '3456.78'
+      type: string
+      pattern: '^(0|[1-9][0-9]*)\.[0-9][0-9]$'
+      maxLength: 16
+      x-apiture-since: 0.4.0
+
+    creditOrDebitValue:
+      x-apiture-version: 1.1.0
+      title: Credit Or Debit Value
+      description: >-
+        The monetary value representing a credit (positive amounts with no prefix or a `+` prefix)
+        or debit (negative amounts with a `-` prefix).
+        The numeric value is  represented as a string so that it can be exact with no
+        loss of precision.
+      example: '3456.78'
+      type: string
+      pattern: '^(-|\+)?(0|[1-9][0-9]*)\.[0-9][0-9]$'
+      maxLength: 16
+      x-apiture-since: 0.4.0
+
+    twoDecimalInterestRate:
+      title: Two Decimal Interest Rate
+      description: >-
+        An interest rate, expressed as a percentage value
+        with two decimal places of accuracy.
+      type: string
+      format: decimal
+      example: '1.40'
+      pattern: '^(0|[1-9]\d?)\.\d{2}$'
+      minLength: 4
+      maxLength: 5
+      x-apiture-since: 0.4.0
+
+    simplePhoneNumber:
+      title: Simple Phone Number
+      description: >-
+        The phone number as a string. The service strips all spaces,
+        hyphens, periods and parentheses from input. The default country
+        code prefix is `+1`. Phone numbers are returned in responses in
+        [E.164](https://en.wikipedia.org/wiki/E.164) format with a leading
+        `+`, country code (up to 3 digits) and subscriber number for a total
+        of up to 15 digits. See [Phone Number
+        Representations](https://developer.apiture.com/docs/concepts/phone-numbers/)
+        for more information.
+      type: string
+      example: '+19105550155'
+      minLength: 8
+      maxLength: 20
+      format: phone-number
+      x-apiture-since: 0.5.0
+
+    typedPhoneNumber:
+      title: Typed Phone Number
+      description: >-
+        A combination of a phone number and a method of description. This should
+        be used when a resource is permitted to include more than one phone number.
+      type: object
+      properties:
+        type:
+          type: string
+          description: >-
+            A typed method to differentiate the phone number.
+          format: text
+          maxLength: 40
+          example: 'business'
+        number:
+          $ref: '#/components/schemas/simplePhoneNumber'
+      required:
+        - type
+        - number
+      x-apiture-since: 0.5.0
+
+    addressFields:
+      x-apiture-version: 1.2.0
+      title: Address Fields
+      description: Properties of a simple address, used to compose other addresses.
+      required:
+        - address1
+        - locality
+        - countryCode
+      x-apiture-fragment: true
+      properties:
+        address1:
+          type: string
+          description: >-
+            The first line of the postal address. In the US, this
+            typically includes the building number and street name.
+          example: 1805 Tiburon Dr.
+          maxLength: 35
+          format: text
+        address2:
+          type: string
+          description: >-
+            The second line of the street address. This should only be used
+            if it has a value. Typical values include building numbers, suite
+            numbers, and other identifying information beyond the first line
+            of the postal address.
+          example: Building 14, Suite 1500
+          maxLength: 35
+          format: text
+        locality:
+          type: string
+          description: >-
+            The city/town/municipality of the address.
+          examples:
+            - Wilmington
+            - Atlanta
+          maxLength: 20
+          format: text
+        countryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+          pattern: '^[A-Za-z]{2}$'
+          description: >-
+            The [ISO-3611 alpha-2](https://www.iso.org/glossary-for-iso-3166.html)
+            value for the country associated with the postal address.
+          examples:
+            - US
+            - CA
+
+    usAddress:
+      x-apiture-version: 1.3.0
+      title: Address (United States)
+      description: >-
+        A postal address within the United States or US territories.
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/addressFields'
+        - type: object
+          required:
+            - regionCode
+            - postalCode
+          properties:
+            regionCode:
+              type: string
+              maxLength: 2
+              minLength: 2
+              pattern: '^[A-Za-z]{2}$'
+              description: >-
+                The state, district, or outlying area of the postal address.
+              examples:
+                - 'NC'
+                - 'DC'
+                - 'VI'
+            postalCode:
+              type: string
+              description: >-
+                A group of five or nine numbers that are added to a postal address to
+                assist the sorting of mail.
+              pattern: '^\d{5}(?:[- ]?\d{4})?$'
+              minLength: 5
+              maxLength: 10
+              examples:
+                - '20521'
+                - '20521-9000'
+            countryCode:
+              type: string
+              minLength: 2
+              maxLength: 2
+              const: US
+              description: >-
+                The [ISO-3611 alpha-2](https://www.iso.org/glossary-for-iso-3166.html)
+                value for the country associated with the postal address.
+              example: 'US'
+      x-apiture-since: 0.5.0
+      example:
+        address1: 1805 Tiburon Dr.
+        address2: Building 14, Suite 1500
+        locality: Wilmington
+        regionCode: NC
+        countryCode: US
+        postalCode: '28412'
+
+    address:
+      x-apiture-version: 1.2.0
+      title: Address
+      description: >-
+        A postal address that can hold a US address or an international (non-US) postal addresses.
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/addressFields'
+        - type: object
+          properties:
+            regionName:
+              type: string
+              minLength: 2
+              maxLength: 20
+              format: text
+              description: >-
+                The state, district, or outlying area of the postal address.
+                This is required if `countryCode` is not `US`.
+                `regionCode` and `regionName` are mutually exclusive.
+              examples:
+                - 'NC'
+                - 'DC'
+                - 'VI'
+            regionCode:
+              type: string
+              maxLength: 2
+              minLength: 2
+              pattern: '^[A-Za-z]{2}$'
+              description: >-
+                The state, district, or outlying area of the postal address.
+                This is required if `countryCode` is `US`
+                `regionCode` and `regionName` are mutually exclusive.
+              examples:
+                - 'NC'
+                - 'DC'
+                - 'VI'
+            postalCode:
+              type: string
+              description: >-
+                The postal code, which varies in format by country.
+                If `countryCode` is `US`, this should be a five digit US ZIP code or
+                ten character ZIP+4.
+              minLength: 2
+              maxLength: 12
+              pattern: '[0-9A-Za-z][- 0-9A-Za-z]{0,10}[0-9A-Za-z]'
+              examples:
+                - '20521'
+                - '20521-1380'
+                - 'V6C 3T4'
+            countryCode:
+              type: string
+              maxLength: 2
+              minLength: 2
+              description: >-
+                The [ISO-3611 alpha-2](https://www.iso.org/glossary-for-iso-3166.html)
+                value for the country associated with the postal address.
+              pattern: '^[A-Z]{2}$'
+              example: 'US'
+          required:
+            - address1
+            - locality
+            - postalCode
+            - countryCode
+      examples:
+        - address1: 1805 Tiburon Dr.
+          address2: Building 14, Suite 1500
+          locality: Wilmington
+          regionName: North Carolina
+          countryCode: US
+          postalCode: '28412'
+        - address1: 999 Canada Place
+          locality: Vancouver
+          regionName: British Columbia
+          countryCode: CA
+          postalCode: V6C 3T4
+
+    dateRange:
+      title: Date Range
+      description: >-
+        A date range, supporting inclusive or exclusive endpoints.
+        Dates ranges use dates expressed in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339)
+        `date` format.
+        The value may have the following forms:
+        <ul>
+        <li>`YYYY-MM-DD` match the date exactly; equivalent to matching dates in the range `[YYYY-MM-DD,YYYY-MM-DD]`</li>
+        <li>`[YYYY-MM-DD,YYYY-MM-DD]` between two dates, inclusive of the endpoints</li>
+        <li>`(YYYY-MM-DD,YYYY-MM-DD)` between two dates, exclusive of the endpoints</li>
+        <li>`[YYYY-MM-DD,]` on or after the date</li>
+        <li>`(YYYY-MM-DD,)` after the date</li>
+        <li>`[,YYYY-MM-DD]` before or on the date</li>
+        <li>`(,YYYY-MM-DD)` before the date</li>
+        </ul>
+      type: string
+      maxLength: 24
+      pattern: '^\d{4}-\d{2}-\d{2}|([[(](\d{4}-\d{2}-\d{2},(\d{4}-\d{2}-\d{2})?|,\d{4}-\d{2}-\d{2})[)\]])$'
+      examples:
+        - '2022-05-19'
+        - '[2022-05-01,2022-05-31]'
+        - '[2022-05-01,2022-06-01)'
+        - '[2022-05-19,]'
+        - '(2022-05-19,)'
+        - '[,2022-05-19]'
+        - '(,2022-05-19)'
+
+    amountRange:
+      title: Amount Range
+      x-apiture-version: 1.2.1
+      description: >-
+        A monetary amount range, supporting inclusive or exclusive endpoints.
+        The value may have the following forms:
+        <ul>
+        <li>`1200.50` match the dollar amount 1,200.50 exactly</li>
+        <li>`[1000.00,1200.00)` matches items where `1000.00 <= amount < 1200.00`</li>
+        <li>`[1000.00,1199.99]` matches items where `1000.00 <= amount <= 1199.99`</li>
+        <li>`[999.99,1200.00]` matches items where `999.99 < amount < 1200.00`</li>
+        <li>`[1200.50,]` matches items where `amount >= 1200.50`</li>
+        <li>`(1200.50,)` matches items where `amount >= 1200.50`</li>
+        <li>`[,1200.50]` matches items where `amount <= 1200.50`</li>
+        <li>`(,1200.50)` matches items where `amount < 1200.50`</li>
+        </ul>
+      type: string
+      pattern: '^((\d+(\.\d{0,2})?)|([\[\(](((\d+(\.\d{0,2})?),((\d+(\.\d{0,2})?))?)|(,(\d+(\.\d{0,2})?)))[\]\)]))$'
+      minLength: 1
+      maxLength: 30
+      examples:
+        - '[1000.00,1200.00)'
+        - '[1000.00,1199.99]'
+        - '[999.99,1200.00]'
+        - '[1200.50,]'
+        - '(1200.50,)'
+        - '[,1200.50]'
+        - '(,1200.50)'
+        - '1200.50'
+
+    positiveIntegerRange:
+      title: Positive Integer Range
+      x-apiture-version: 1.1.0
+      description: >-
+        A positive integer range, supporting inclusive or exclusive endpoints.
+        The value may have the following forms:
+        <ul>
+        <li>`1200` match the integer 1,200 exactly</li>
+        <li>`[1000,1200)` matches items where `1000 <= number < 1200`</li>
+        <li>`[1000,1199]` matches items where`1000 <= number <= 1199`</li>
+        <li>`[999,1200]` matches items where `999 < number < 1200`</li>
+        <li>`[1200,]`  `number >= 1200`</li>
+        <li>`(1200,)` greater than the value: `number >= 1200`</li>
+        <li>`[,1200]` less than or equal to the value: `number <= 1200`</li>
+        <li>`(,1200)` less than the value: `number < 1200`</li>
+        </ul>
+      type: string
+      pattern: '^\d+|([[(](\d+,(\d+)?|,\d+)[)\]])$'
+      maxLength: 20
+      examples:
+        - '[1000,1200)'
+        - '[1000,1199]'
+        - '[999,1200]'
+        - '[1200,]'
+        - '(1200,)'
+        - '[,1200]'
+        - '(,1200)'
+        - '1200'
+
+    transferRecurrenceType:
+      title: Transfer Recurrence Type
+      description: >-
+        Describes whether the transfer amount in the transfer
+        varies or is fixed when the transfer recurs.
+        This is ignored if the transfer frequency is `once`.
+      type: string
+      x-apiture-enum: transferRecurrenceType
+      enum:
+        - fixed
+        - variable
+
+    transferFrequency:
+      title: Transfer Frequency
+      description: >-
+        For recurring transfers, the interval at which the money movement recurs.
+      type: string
+      x-apiture-enum: transferFrequency
+      enum:
+        - once
+        - occasional
+        - daily
+        - weekly
+        - biweekly
+        - semimonthly
+        - monthly
+        - monthlyFirstDay
+        - monthlyLastDay
+        - bimonthly
+        - quarterly
+        - semiyearly
+        - yearly
+
+    fullAchAccountNumber:
+      title: Full ACH Account Number
+      description: A full account number used in ACH account processing.
+      type: string
+      minLength: 2
+      maxLength: 17
+      pattern: '^[- a-zA-Z0-9.]{2,17}$'
+      examples:
+        - '123456789'
+
+    achSecCode:
+      title: ACH SEC Code
+      description: The ACH transfer type.
+      type: string
+      x-apiture-enum: achSecCode
+      enum:
+        - arc
+        - boc
+        - ccd
+        - cie
+        - ctx
+        - pop
+        - ppd
+        - rck
+        - tel
+        - web
+
+  headers:
+    ETag:
+      description: The value of this resource's _entity tag_, to be passed with `If-Match` and `If-None-Match`
+        request headers in other conditional API calls for this resource.
+      schema:
+        type: string
+        pattern: '^\P{Cc}{1,512}$'
+        maxLength: 512
+
+    Retry-After:
+      description: >-
+        Indicates an absolute time, in [HTTP `date-time` format, UTC](https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1)
+        or a delay in seconds (a non-negative integer)
+        after which the client may retry the operation.
+        See [RFC7231: Retry-After](https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.3)
+
+
+        Examples:
+          * `Retry-After: 5`
+          * `Retry-After: Mon, 03 May 2022 23:59:59 GMT`
+      schema:
+        type: string
+        format: text
+        maxLength: 32
+
+  responses:
+    '204':
+      description: >-
+        No Content.
+        The operation succeeded but returned no response body.
+
+    204Deleted:
+      description: >-
+        No Content.
+        The resource was deleted successfully and the operation returned no response body.
+
+    '304':
+      description: >-
+        Not Modified.
+        The resource has not been modified since it was last fetched.
+
+    '400':
+      description: >-
+        Bad Request.
+        The request body, request headers, and/or query parameters are not well-formed.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/badRequest'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/badRequest/v1.0.0'
+              title: Bad Request
+              status: 400
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: Input did not parse as JSON
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/badRequest/v1.0.0'
+              title: Bad Request
+              status: 400
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: Input did not parse as JSON
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '401':
+      description: >-
+        Unauthorized.
+        The operation requires authentication but no authentication or insufficient authentication was given.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/unauthorized'
+        - $ref: '#/components/x-apiture-errors/sessionExpired'
+        - $ref: '#/components/x-apiture-errors/challengeRequired'
+        - $ref: '#/components/x-apiture-errors/loginIncomplete'
+        - $ref: '#/components/x-apiture-errors/passwordChangeRequired'
+        - $ref: '#/components/x-apiture-errors/invalidCsrfToken'
+        - $ref: '#/components/x-apiture-errors/challengeBlocked'
+        - $ref: '#/components/x-apiture-errors/noIdentityChallengeFactors'
+        - $ref: '#/components/x-apiture-errors/invalidIdentityChallengeHeader'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/unauthorized/v1.0.0'
+              title: Unauthorized
+              status: 401
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request lacks valid authentication credentials
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/unauthorized/v1.0.0'
+              title: Unauthorized
+              status: 401
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request lacks valid authentication credentials
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '403':
+      description: >-
+        Forbidden.
+        The authenticated caller is not authorized to perform the requested operation.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/forbidden'
+        - $ref: '#/components/x-apiture-errors/customerDisabled'
+        - $ref: '#/components/x-apiture-errors/antiMalwareRequired'
+        - $ref: '#/components/x-apiture-errors/modificationForbidden'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/forbidden/v1.0.0'
+              title: Forbidden
+              status: 403
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request has valid authentication,
+                but the authenticated agent is forbidden from accessing this resource or operation
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/forbidden/v1.0.0'
+              title: Forbidden
+              status: 403
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request has valid authentication,
+                but the authenticated agent is forbidden from accessing this resource or operation
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '404':
+      description: >-
+        Not found.
+        There is no such resource at the request URL.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/notFound'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/notFound/v1.0.0'
+              title: Not Found
+              status: 404
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The resource at the request URL does not exist.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/notFound/v1.0.0'
+              title: Not Found
+              status: 404
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The resource at the request URL does not exist.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '405':
+      description: >-
+        Method Not Allowed.
+        The method received in the request is known by the origin server but not supported by the target resource.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/methodNotAllowed'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '406':
+      description: >-
+        Not Acceptable.
+        The target resource does not have a current representation that would be acceptable to the user agent.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/notAcceptable'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '409':
+      description: >-
+        Conflict.
+        The request conflicts with the state of the application.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/conflict'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '412':
+      description: >-
+        Precondition Failed.
+        One or more conditions given in the request header fields evaluated to false when tested on the server.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/preconditionFailed'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '413':
+      description: >-
+        Payload Too Large.
+        The server is refusing to process a request because the request payload is larger than the server is willing or able to process.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/payloadTooLarge'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '415':
+      description: >-
+        Unsupported Media Type.
+        The payload is in a format not supported by this method on the target resource.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/unsupportedMediaType'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '422':
+      description: >-
+        Unprocessable Entity.
+        The request body and/or query parameters were well-formed but otherwise invalid.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/unprocessableEntity'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/unprocessableEntity/v1.0.0'
+              title: Unprocessable Entity
+              status: 422
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request body and/or query parameters were well-formed but otherwise invalid.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/unprocessableEntity/v1.0.0'
+              title: Unprocessable Entity
+              status: 422
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The request body and/or query parameters were well-formed but otherwise invalid.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '428':
+      description: >-
+        Precondition Required.
+        The origin server requires the request to be conditional.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/preconditionRequired'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '429':
+      description: >-
+        Too Many Requests.
+        The client has sent too many requests in a given amount of time.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/tooManyRequests'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/tooManyRequests/v1.0.0'
+              title: Too Many Requests
+              status: 429
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The user has sent too many requests in a given amount of time.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+            example:
+              id: 3fbad566-be86-4b22-9ba6-3ca99fdc0799
+              type: 'https://api.apiture.com/errors/tooManyRequests/v1.0.0'
+              title: Too Many Requests
+              status: 429
+              occurredAt: '2022-04-25T12:42:21.375Z'
+              detail: The user has sent too many requests in a given amount of time.
+              instance: 'https://api.apiture.com/banking/transfers/bb709151-575041fcd617'
+
+    '500':
+      description: >-
+        Internal Server Error.
+        The server encountered an unexpected condition that prevented it from fulfilling the request.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/internalServerError'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '501':
+      description: >-
+        Not Implemented.
+        The server does not support the functionality required to fulfill the request.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/notImplemented'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '503':
+      description: >-
+        Service Unavailable.
+        The server is currently unable to handle the request due to a temporary overload or scheduled maintenance,
+        which will likely be alleviated after some delay.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/serviceUnavailable'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+    '504':
+      description: >-
+        Gateway Timeout.
+        The server did not receive a timely response from an upstream server it needed to access in order to complete the request.
+      x-apiture-errors:
+        - $ref: '#/components/x-apiture-errors/gatewayTimeout'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/problemResponse'
+
+  x-apiture-errors:
+    # 400:
+    badRequest:
+      description: The request body and/or parameters was not well-formed.
+      remediation: Correct any syntax or schema errors in the request body or parameters.
+    # 401:
+    unauthorized:
+      description: The request lacks valid authentication credentials for the target resource or operation.
+      remediation: Authenticate the user and pass the required authorization with the request.
+    # 403:
+    forbidden:
+      description: The user or agent is not allowed to perform this operation; authentication credentials
+        were provided in the request,
+        but the server considers them insufficient to grant access.
+      remediation: Check the user's permissions and entitlements before attempting the operation.
+    # 404:
+    notFound:
+      description: The resource at the requested URL does not exist.
+      remediation: Use the URL of an existing resource.
+    # 405:
+    methodNotAllowed:
+      description: The method received in the request is known by the origin server but not supported by the target resource.
+      remediation: Use only HTTP methods defined by the API.
+    # 406:
+    notAcceptable:
+      description: The target resource does not have a current representation that would be acceptable to the user agent.
+      remediation: Request only content types defined for the API response.
+    # 409:
+    conflict:
+      description: The request could not be completed due to a conflict with the current state of the target resource.
+      remediation: Try another operation that is allowed.
+    # 412:
+    preconditionFailed:
+      description: One or more conditions given in the request header fields evaluated to false when tested on the server.
+      remediation: Update resources and use it's most recent ETag or modification time stamp.
+    # 413:
+    payloadTooLarge:
+      description: The server is refusing to process a request because the request payload is larger than the server is willing or able to process.
+      remediation: Reduce the size of request body.
+    # 415:
+    unsupportedMediaType:
+      description: The payload is in a format not supported by this method on the target resource.
+      remediation: Use one of the media types defined for the request body.
+    # 422:
+    unprocessableEntity:
+      description: The syntax of the request entity is correct but was unable to process the contained instructions.
+      remediation: Provide a semantically correct request.
+    # 428:
+    preconditionRequired:
+      description: The origin server requires the request to be conditional.
+      remediation: Use a If-Unmodified-Since or If-Match request header corresponding to the most recent
+        resource state.
+    # 429:
+    tooManyRequests:
+      description: The client has sent too many requests in a given amount of time, exceeding rate limiting.
+      remediation: Slow down the rate of API calls.
+
+    # 500:
+    internalServerError:
+      description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+      remediation: Contact support.
+    # 501:
+    notImplemented:
+      description: The server does not support the functionality required to fulfill the request.
+      remediation: Verify the request does not include the unimplemented feature.
+    # 503:
+    serviceUnavailable:
+      description: The server is currently unable to handle the request due to a temporary overload or scheduled maintenance,
+        which will likely be alleviated after some delay.
+      remediation: Retry the operation later.
+    # 504
+    gatewayTimeout:
+      description: The server did not receive a timely response from an upstream server it needed to access in order to complete the request.
+      remediation: Wait a few minutes and try again, or gracefully fail the client request.
+
+    sessionExpired:
+      description: The user's session has expired.
+      remediation: Re-authenticate the user to get a new access token or other authorization.
+    challengeRequired:
+      description: The operation requires a the customer to complete an identity challenge.
+      remediation: Complete the challenge as per the problem response,
+        and add an additional `Challenge` header to the call.
+      attributes:
+        $ref: '#/components/schemas/requiredIdentityChallenge'
+    loginIncomplete:
+      description: The user is correctly authenticated but additional actions are required for activating their login session.
+      remediation: Instruct the user to complete the additional actions to activate their login session.
+    passwordChangeRequired:
+      description: The user must change their password.
+      remediation: Instruct the user to change their password or other login credentials.
+    invalidCsrfToken:
+      description: The CSRF token is invalid.
+      remediation: The client application is not correctly configured to send CSRF.
+    customerDisabled:
+      description: The customer is disabled.
+      remediation: Have the customer contact the financial institution for support.
+    antiMalwareRequired:
+      description: The financial institution requires the customer to have anti-malware software installed.
+      remediation: Direct the user to the software requirements guide to install the correct anti-malware software.
+    modificationForbidden:
+      description: The customer is properly authenticated but not authorized to create, modify, or delete resources.
+      remediation: Avoid modification operation for customers with read-only authorization.
+    noIdentityChallengeFactors:
+      description: This operation requires challenge, but the user does not have
+        the necessary registered authentication factors.
+      remediation: Have the user register one or more challenge security code delivery
+        factors.
+    challengeBlocked:
+      description: The user has failed challenges too many times and is blocked from
+        attempting more or performing operations which require additional authentication.
+      remediation: Have the user end their login session and login again.
+    invalidIdentityChallengeHeader:
+      description: The additional on-time `Challenge` header in this request is expired, already used, or
+        otherwise invalid.
+      remediation: Supply a valid, unexpired, unclaimed `Challenge` header in the request.

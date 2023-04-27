@@ -1,0 +1,794 @@
+openapi: 3.1.0
+
+info:
+  title: Transactions
+  description: >-
+    The Transactions API allows bank customers to view the transactions history associated with a banking account.
+    The client may filter the transaction history by date, amount, transaction type, and other
+    criteria. The transaction response is paginated since there may be many thousands of transactions
+    for an account.
+
+
+    Transactions have a `type` which indicates if the item is a balance transaction which establishes
+    the account's balance, or a `debit`, or a `credit` transaction.
+    Examples of debit transactions are checks drawn against an account, withdrawals, transfers from
+    the account, fees, and adjustments. Examples of credit transactions are deposits, transfers to
+    the account, interest, and adjustments.
+    Check transactions include the check number and links to the check front and back images.
+
+
+    Some transactions, such as ACH transfers or debit card payments, include information about the merchant,
+    such as the merchant name, the merchant's website URL, and logo URL if available.
+
+
+    Transactions also have a `memo` descriptive field which the customer can change. Each non-balance transaction
+    can also be assigned to a _category_. The customer can edit their list of custom transaction categories.
+    There is also a pre-defined list of fixed categories. (_Category management is to be designed._)
+
+
+    **Note:** The financial institution may limit transaction history to the last 12 months of data.
+  version: 0.10.0
+  contact:
+    name: Apiture
+    url: 'https://developer.apiture.com/help/support/'
+    email: api@apiture.com
+  termsOfService: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+  license:
+    name: Apiture API License
+    url: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+x-apiture-namespace: bankingTransactions
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Transactions
+    description: Banking Account Transactions
+  - name: Transaction Categories
+    description: Banking Account Transaction Categories
+
+paths:
+  /accounts/{accountId}/transactions:
+    parameters:
+      - $ref: '../accounts/openapi.yaml#/components/parameters/accountIdPathParam'
+    get:
+      summary: Return a collection of transactions
+      description: >-
+        Return a [paginated](https://developer.apiture.com/docs/concepts/pagination) collection of transaction
+        history for this internal account.
+
+
+        **Note**: this operation may return a 202 Accepted and a `Retry-After` response header if the server requires more
+        time to build the list of transactions. The client should retry after that delay, as described in the
+        202 response below.
+
+
+        With the `Accept: text/csv` request header (instead of `Accept: application/json`), this operation returns a
+        _comma-separated values_ (CSV) text response instead of a JSON response.
+
+
+        The first row in the file is the CSV column headers, corresponding to the properties in the
+        [`transactionItem`](#schema-transactionItem):
+
+        ```
+        Date,Type,Subtype,Check Number,Description,Amount,Balance,Posted,Memo,Category ID,Category Label,Merchant Name,Id
+        ```
+
+
+        If a value does not exist for a record in the CSV, the corresponding
+        column in the CSV is blank. All records have all 13 columns.
+        For example, if the transaction has no memo, merchant, category, or check number, the row may look like
+
+        ```
+        2023-04-07,credit,other,,counter deposit,120.75,2034.70,true,,,,,HR49D9289498DHJE
+        ```
+
+
+        The CSV file contains up to `limit` number of transactions. If there is another page of transactions,
+        the [Link response header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Link) provides a
+        link for fetching the next page of CSV transactions. The link URL includes a new `?start=` value.
+        The link parameter `"rel"` has the value `"next"` to indicate this is the link to the next page. For
+        example:
+
+
+        ```
+        Link: <https://api.apiture.com/banking/accounts/581ca61abab3/transactions?start=88a9e9a3cd13f742?limit=1000>; rel="next"
+        ```
+
+
+        For `Accept: application/json`, the
+        [`nextPage_url`](https://developer.apiture.com/docs/concepts/links) link in the response, if present, is
+        a pagination link to the next page of transactions for the given filters.
+
+
+        This operation returns a 403 Forbidden error if the customer does not have `view` permissions in the `account.allows` object,
+        or a 422 Unprocessable Entity if called on an external account.
+
+
+        The default response lists only recent transactions. Normally, this is transactions for the
+        most recent 30 days, although for high-volume accounts, it may be a shorter period.
+      operationId: listTransactions
+      x-apiture-group: transactions
+      tags:
+        - Transactions
+      parameters:
+        - $ref: '../common/openapi.yaml#/components/parameters/startQueryParam'
+        - name: limit
+          in: query
+          description: The maximum number of items to return in this paged response.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 10000
+            default: 100
+        - name: occurredOn
+          description: >-
+            Return only transactions whose `occurredOn` date is in this date range.
+            Dates ranges use dates expressed in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339)
+            `date` format.
+            Each account has an implicit default transaction history range of _n_ days. This is normally 30 days
+            but may be shorter for accounts with high activity. This _n_ day period is applied
+            to any unbounded date ranges. The default date range is the most recent _n_ days.
+            Example date ranges:
+            <ul>
+            <li> `2023-05-19` match transactions occurring on May 19, 2023.</li>
+            <li> `[2023-05-01,2023-05-31]` match transactions occurring between May 1 and 31, 2023, inclusive</li>
+            <li> `[2023-05-01,2023-06-01)` match transactions occurring in May, 2023 (on or after May 1, but before June 1)</li>
+            <li> `[2023-05-09,]` match transactions _n_ days on or after May 9, 2023</li>
+            <li> `(2023-05-09,)` match transactions _n_ days after May 9, 2023</li>
+            <li> `[,2023-05-09]` match transactions _n_ days on or before May 9, 2023</li>
+            <li> `(,2023-05-09)` match transactions _n_ days before but excluding May 9, 2023</li>
+            </ul>
+          in: query
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}|([[(](\d{4}-\d{2}-\d{2},(\d{4}-\d{2}-\d{2})?|,\d{4}-\d{2}-\d{2})[)\]])$'
+            minLength: 10
+            maxLength: 24
+            examples:
+              - '2023-05-19'
+              - '[2023-05-01,2023-05-31]'
+              - '[2023-05-01,2023-06-01)'
+              - '[2023-05-19,]'
+              - '(2023-05-19,)'
+              - '[,2023-05-19]'
+              - '(,2023-05-19)'
+        - name: posted
+          description: >-
+            Limit transactions in the response based on the transaction's `posted` value.
+            If `true`, include only posted transactions.
+            If `false`, include only non-posted transactions.
+            If omitted, do not filter based on `posted`.
+            Note that using this filter excludes balance transactions because the `posted` property is not set
+            on balance transactions, so neither `true` or `false` match them.
+          in: query
+          schema:
+            type: boolean
+        - name: category
+          description: Filter transactions to only those whose `category` is in this pipe-separated list.
+            Categories are set by a transaction cleansing service or assigned by the account holder.
+            Categories can include names such as `"Shopping"`, `"Deposit"`, `"Bill"`, `"Transfer"`, or
+            `"Other"`.
+          in: query
+          style: pipeDelimited
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 16
+            uniqueItems: true
+            example:
+              - Bill
+              - Transfer
+            items:
+              $ref: '#/components/schemas/transactionCategoryLabel'
+        - name: type
+          description: Filter transactions to only those whose `type` is in this pipe-separated list.
+          in: query
+          style: pipeDelimited
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 3
+            uniqueItems: true
+            items:
+              $ref: '#/components/schemas/transactionType'
+        - name: subtype
+          description: Filter transactions to only those whose `subtype` is in this pipe-separated list.
+          in: query
+          style: pipeDelimited
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 2
+            uniqueItems: true
+            items:
+              $ref: '#/components/schemas/transactionSubType'
+        - name: amount
+          description: >-
+            Return only transactions whose `amount` is in this numeric range.
+            This compares only the absolute value of the transaction.
+            That is, the value `[1000.00,1100.00)` matches either
+            a debit of `-1070.25` or a credit of `1021.90`.<br>
+            Some examples of specifying an amount range:
+            <ul>
+            <li>`1200.50` match the dollar amount 1,200.50 exactly</li>
+            <li>`[1000.00,1200.00)` matches items where `1000.00 <= amount < 1200.00`</li>
+            <li>`[1000.00,1199.99]` matches items where `1000.00 <= amount <= 1199.99`</li>
+            <li>`(999.99,1200.00]` matches items where `999.99 < amount <= 1200.00`</li>
+            <li>`[1200.50,]` matches items where `amount >= 1200.50`</li>
+            <li>`(1200.50,)` matches items where `amount > 1200.50`</li>
+            <li>`[,1200.50]` matches items where `amount <= 1200.50`</li>
+            <li>`(,1200.50)` matches items where `amount < 1200.50`</li>
+            </ul>
+          in: query
+          schema:
+            $ref: '../common/openapi.yaml#/components/schemas/amountRange'
+        - name: checkNumber
+          description: >-
+            Return only transactions whose `check.number` is in this integer range.
+            Examples:
+            <ul>
+            <li>`1200` match the integer 1,200 exactly</li>
+            <li>`[1000,1200)` matches items where `1000 <= number < 1200`</li>
+            <li>`[1000,1199]` matches items where `1000 <= number <= 1199`</li>
+            <li>`(999,1200]` matches items where `999 < number <= 1200`</li>
+            <li>`[1200,]` matches items where `number >= 1200`</li>
+            <li>`(1200,)` matches items where `number > 1200`</li>
+            <li>`[,1200]` matches items where `number <= 1200`</li>
+            <li>`(,1200)` matches items where `number < 1200`</li>
+            </ul>
+          in: query
+          schema:
+            $ref: '#/components/schemas/checkNumberRange'
+        - name: retryCount
+          description: When retrying the operation, pass the `retryCount` from
+            the `incompleteTransactions` response.
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 10
+
+      responses:
+        '200':
+          description: >-
+            OK. The response is either the JSON [`transactions`](#schema-transactions)
+            representation if the request included `Accept: application/json` or comma-separated values
+            text if using `Accept: text/csv`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transactions'
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                maxLength: 5000000
+        '202':
+          description: >-
+            Accepted. The service accepted the request but could not list the transactions for the date range in
+            a reasonable amount of time. The system continues fetching the transactions so that they are
+            available after one or more retries. Try the call again after the time in the `Retry-After` response
+            header has passed.
+
+
+            When retrying a request for a JSON response, pass the value of the `retryCount` from the
+            [`incompleteTransactions`](#schema-incompleteTransactions) response as the `retryCount` query parameter.
+
+
+            When trying a request for a CSV response, the returned `Link` header has the link parameter rel="retry". The client should
+            retry the `listTransactions` operation using the Link header URI which includes updated `?retryCount=` query parameter:
+
+            ```
+            Link: <https://api.apiture.com/banking/accounts/581ca61abab3/transactions?start=88a9e9a?limit=1000&retryCount=1>; rel="retry"
+            ```
+
+
+            If there is no `Retry-After` response header, the client has reached its maximum number of
+            tries and should _not_ retry the operation. If the system is unable to fetch the transactions after
+            several attempts, the call returns 504 Gateway Timeout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/incompleteTransactions'
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                maxLength: 0
+          headers:
+            Retry-After:
+              $ref: '../common/openapi.yaml#/components/headers/Retry-After'
+        '400':
+          $ref: '../common/openapi.yaml#/components/responses/400'
+        '401':
+          $ref: '../common/openapi.yaml#/components/responses/401'
+        '403':
+          $ref: '../common/openapi.yaml#/components/responses/403'
+        '404':
+          description: Not Found. There is no such banking account resource at the specified
+            `{accountId}` or the customer does not have entitlement to that account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+        '422':
+          description: Unprocessable Entity. The request body and/or query parameters were well formed but otherwise invalid.
+          x-apiture-errors:
+            - transactionsForInternalAccountOnly
+          content:
+            application/problem+json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+            application/json:
+              schema:
+                $ref: '../common/openapi.yaml#/components/schemas/problemResponse'
+        '429':
+          $ref: '../common/openapi.yaml#/components/responses/429'
+        '504':
+          $ref: '../common/openapi.yaml#/components/responses/504'
+      security:
+        - accessToken:
+            - banking/read
+
+  /transactionCategories:
+    get:
+      summary: Return a collection of transaction categories
+      description: >-
+        Return a collection of transaction categories.
+        The response is limited to 1,000 categories.
+
+
+        This is a _conditional operation_ when the `If-None-Match` header is used. If the client has a
+        `transactionCategories` response and the `ETag` returned from a previous call,
+        this operation returns a 304 Not Modified if called again when the
+        categories collection has not changed.
+      operationId: listTransactionCategories
+      x-apiture-group: transactionCategories
+      tags:
+        - Transaction Categories
+      parameters:
+        - $ref: ../common/openapi.yaml#/components/parameters/ifNoneMatchHeaderParam
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transactionCategories'
+          headers:
+            ETag:
+              $ref: ../common/openapi.yaml#/components/headers/ETag
+        '304':
+          $ref: ../common/openapi.yaml#/components/responses/304
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '422':
+          description: >-
+            Unprocessable Entity. The request body and/or query parameters were
+            well formed but otherwise invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+            application/json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+      security:
+        - accessToken:
+            - banking/read
+
+components:
+  securitySchemes:
+    apiKey:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/apiKey'
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+
+  schemas:
+    checkNumberRange:
+      title: Check Number Range
+      description: A numeric range for a checking account check number.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/positiveIntegerRange'
+
+    transactionFields:
+      x-apiture-version: 3.0.0
+      title: Transaction Fields
+      description: >-
+        Common fields of the transaction resource used to build other model schemas.
+      type: object
+      x-apiture-fragment: true
+      properties:
+        id:
+          description: This transaction's unique identifier.
+          readOnly: true
+          type: string
+          pattern: '^[-_:,.~$a-zA-Z0-9]{6,128}$'
+          minLength: 6
+          maxLength: 128
+        type:
+          description: The transaction type.
+            If the `type` is `debit` or `credit`, the `subtype` conveys further transaction type details.
+          $ref: '#/components/schemas/transactionType'
+        subtype:
+          description: The transaction's kind of debit or credit.
+          $ref: '#/components/schemas/transactionSubType'
+        occurredOn:
+          description: >-
+            The date of the transaction in
+            `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339)
+            `date` format. This is derived and immutable.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+          readOnly: true
+          example: '2023-05-18'
+        amount:
+          description: The transaction amount in dollars.
+            This value is negative if the transaction is a debit
+            and positive if it is a credit.
+          $ref: '../common/openapi.yaml#/components/schemas/creditOrDebitValue'
+        posted:
+          description: If `true`, the transaction has been posted (cleared) and applied to the account. If
+            `false`, the transaction is still pending and might be canceled. `posted` is only valid for credit
+            and debit transactions and omitted for balance transactions.
+          type: boolean
+        balance:
+          description: The account's running current balance as of this transaction.
+            The `balance` may be omitted if the request includes filters which
+            preclude the inclusion of a running balance.
+          $ref: '../common/openapi.yaml#/components/schemas/creditOrDebitValue'
+        memo:
+          description: The user-settable transaction memo.
+          type: string
+          format: text
+          maxLength: 128
+        description:
+          description: The transaction description assigned by the transaction cleansing service.
+          type: string
+          format: text
+          maxLength: 128
+        category:
+          description: The transaction category, if assigned.
+          $ref: '#/components/schemas/transactionCategorization'
+        merchant:
+          $ref: '#/components/schemas/transactionMerchant'
+        check:
+          $ref: '#/components/schemas/transactionCheck'
+      required:
+        - id
+        - type
+        - subtype
+        - occurredOn
+        - amount
+      example:
+        id: '88f5bf17-ecc4'
+        type: debit
+        subtype: check
+        occurredOn: '2023-05-18'
+        memo: Paid electric bill
+        merchant:
+          name: B&T'S Excellent Electric Co
+          website_url: 'https://BillTedsExcellentElectricCompany.example.com/'
+          logo_url: 'https://BillTedsExcellentElectricCompany.example.com/img/logos/medium.png'
+        amount: '1276.21'
+        posted: true
+        balance: '8509.38'
+        category:
+          label: Utilities
+          id: '127'
+        check:
+          number: 8412
+          imageFront_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/front/content
+          imageBack_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/back/content
+
+    transactionMerchant:
+      x-apiture-version: 1.1.0
+      title: Transaction Merchant
+      description: Describes the merchant associated with a transaction.
+      type: object
+      properties:
+        name:
+          description: The merchant\'s name.
+          type: string
+          maxLength: 32
+          format: text
+        website_url:
+          description: The merchant's website URL.
+          type: string
+          format: uri-reference
+          maxLength: 400
+        logo_url:
+          description: The optional URL of the merchant's logo. This image must be
+            an image resource (SVG, PNG, GIF, JPEG image) that does not require
+            any authentication. The URL may contain query parameters.
+          type: string
+          format: uri-reference
+          maxLength: 400
+
+    transactionCheck:
+      x-apiture-version: 2.1.0
+      title: Transaction Check
+      description: Describes a check associated with a transaction for a checking account.
+        This object is only present if the transaction `type` is `debit` and the `subtype` is `check`.
+      type: object
+      required:
+        - number
+      properties:
+        number:
+          description: The check number.
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 99999999999
+        imageFront_url:
+          description: The URL for downloading the image of the front of the check.
+          type: string
+          format: uri-reference
+          maxLength: 400
+        imageBack_url:
+          description: The URL for downloading the image of the front of the check.
+          type: string
+          format: uri-reference
+          maxLength: 400
+
+    transactionCategorization:
+      x-apiture-version: 1.3.0
+      title: Transaction Categorization
+      description: The transaction categorization.
+      type: object
+      required:
+        - id
+        - label
+      properties:
+        label:
+          $ref: '#/components/schemas/transactionCategoryLabel'
+        id:
+          description: The unique ID of this transaction's category.
+          type: string
+          pattern: '^[-_:.~$a-zA-Z0-9]{1,32}$'
+          minLength: 1
+          maxLength: 32
+          readOnly: true
+
+    transactionCategoryLabel:
+      x-apiture-version: 1.2.0
+      title: Transaction Category Label
+      description: The label of a transaction category, such as `"Shopping"`, `"Deposit"`, `"Bill"`, `"Transfer"`, or `"Other"`.
+      type: string
+      format: text
+      minLength: 1
+      maxLength: 64
+
+    transactionType:
+      x-apiture-version: 2.0.0
+      title: Transaction Type
+      description: Distinguishes between balance, debit, or credit transactions.
+      type: string
+      x-apiture-enum: transactionType
+      enum:
+        - balance
+        - debit
+        - credit
+
+    transactionSubType:
+      title: Transaction Subtype
+      description: If the type is `debit` or `credit`, the subtype conveys further transaction type details.
+      x-apiture-note: >-
+        To add in the future:
+        - adjustment
+        - atm
+        - deposit
+        - mobileDeposit
+        - fee
+        - interest
+        - reversal
+        - transfer
+      type: string
+      x-apiture-enum: transactionSubType
+      enum:
+        - check
+        - other
+
+    transactionItem:
+      x-apiture-version: 3.0.0
+      title: Transaction Item
+      description: >-
+        Summary representation of a transaction resource in transactions collections.
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - $ref: '#/components/schemas/transactionFields'
+      example:
+        id: '88f5bf17-ecc4'
+        type: debit
+        subtype: check
+        occurredOn: '2023-05-18'
+        memo: Paid electric bill
+        merchant:
+          name: B&T's Excellent Electric Co.
+          website_url: 'https://BillTedsExcellentElectricCompany.example.com/'
+          logo_url: 'https://BillTedsExcellentElectricCompany.example.com/img/logos/medium.png'
+        amount: '1276.21'
+        posted: true
+        balance: '8509.38'
+        category:
+          label: Utilities
+          id: '127'
+        check:
+          number: 8412
+          imageFront_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/front/content
+          imageBack_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/back/content
+
+    transactions:
+      x-apiture-version: 3.0.0
+      title: Transaction Collection
+      description: >-
+        Collection of transactions. The items in the collection are ordered in
+        the `items` array. The response object may contain the `nextPage_url` pagination link.
+      required:
+        - items
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractPagedBody'
+        - type: object
+          properties:
+            items:
+              description: An array containing a page of transaction items.
+              type: array
+              maxItems: 10000
+              items:
+                $ref: '#/components/schemas/transactionItem'
+            count:
+              description: The total number of transactions which satisfy the request filters.
+                This is optional and only included if the service can calculate it.
+              type: integer
+              format: int32
+              minimum: 0
+              maximum: 100000000
+      example:
+        start: d1b48af913464aa49fcb07065dcc0616
+        limit: 10
+        count: 2381
+        nextPage_url: >-
+          https://api.apiture.com/banking/accounts/c9fc25b47d52916fc9ad/transactions?start=6117a4dcefb841cab7316cef1ac8b58c&limit=10
+        items:
+          - id: d62c0701-0d74
+            type: balance
+            occurredOn: '2023-06-18'
+            amount: '0.00'
+            posted: true
+            balance: '8509.38'
+          - id: '88f5bf17-ecc4'
+            type: debit
+            subtype: check
+            occurredOn: '2023-06-18'
+            memo: Paid electric bill
+            merchant:
+              name: B&T's Excellent Electric Co.
+              website_url: 'https://BillTedsExcellentElectricCompany.example.com/'
+              logo_url: 'https://BillTedsExcellentElectricCompany.example.com/img/logos/medium.png'
+            amount: '1276.21'
+            posted: true
+            balance: '8509.38'
+            category:
+              label: Utilities
+              id: '127'
+            check:
+              number: 8412
+              imageFront_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/front/content
+              imageBack_url: /accounts/1d16e438-18e0/transactions/88f5bf17-ecc4/images/back/content
+
+    incompleteTransactions:
+      title: Incomplete Transactions
+      description: Response when requesting transactions that are not yet available.
+      type: object
+      allOf:
+        - $ref: '../common/openapi.yaml#/components/schemas/abstractBody'
+        - type: object
+          required:
+            - retryCount
+          properties:
+            retryCount:
+              description: >-
+                Pass this value as the as the `?retryCount=` parameter with the next retry
+                of the [`listTransactions`](#op-listTransactions) operation.
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 10
+
+    transactionCategoryType:
+      title: Transaction Category
+      description: Classifies a transaction category as applying to either debit or credit transactions.
+      type: string
+      x-apiture-enum: transactionCategoryType
+      enum:
+        - credit
+        - debit
+
+    transactionCategory:
+      x-apiture-version: 1.2.0
+      title: Transaction Category
+      description: Representation of transaction category resources.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/transactionCategorization'
+        - type: object
+          required:
+            - type
+          properties:
+            type:
+              $ref: '#/components/schemas/transactionCategoryType'
+      example:
+        id: 0399abed-fd3d
+        type: debit
+        label: Dining
+
+    transactionCategories:
+      x-apiture-version: 1.2.0
+      title: Transaction Category Collection
+      description: >-
+        Collection of transaction categories. The list contains
+        both financial institution defined immutable categories
+        and customer defined categories.
+      allOf:
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: >-
+                An array containing transaction category items.
+              type: array
+              maxItems: 1000
+              items:
+                $ref: '#/components/schemas/transactionCategory'
+      example:
+        items:
+          - id: ef7958260dce34abddb7
+            label: Groceries
+            type: debit
+          - id: f24096860ebf1383e202
+            label: Dining
+            type: debit
+          - id: 33c3d38ca0a744b8d903
+            label: Entertainment
+            type: debit
+
+  x-apiture-errors:
+    transactionsForInternalAccountOnly:
+      description: Transactions are not available for external accounts.
+      remediation: Request transactions only for internal accounts.
+
+x-apiture-traits:
+  - resource:
+      name: transaction
+      pathPrefix: /accounts/{accountId}
+      readOnly: true
+      cursorPaged: true
+      applied: true
+  - resource:
+      name: transaction category
+      simpleModelSchema: true
+      cursorPaged: false
+      sortable: false
+      etag: true
+      x-apiture-todo: Remove the excludeMethods; for now, we need only the list operation
+      excludeMethods: [get, post, put, patch, delete]
+      applied: true
+  - security:
+      baseScope: data
+      applied: true

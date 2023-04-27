@@ -9,11 +9,30 @@ import { convertObject } from "./schema/convertObject";
 
 export const SCHEMA_REFERENCE_PREFIX = "#/components/schemas/";
 
-export function getSchemaIdFromReference(ref: OpenAPIV3.ReferenceObject): string {
-    if (!ref.$ref.startsWith(SCHEMA_REFERENCE_PREFIX)) {
-        throw new Error(`Cannot get schema id from reference: ${ref.$ref}`);
+export interface SchemaReference {
+    file: string | undefined;
+    schema: string;
+}
+
+export function getSchemaIdFromReference(ref: OpenAPIV3.ReferenceObject): SchemaReference {
+    const idx = ref.$ref.indexOf(SCHEMA_REFERENCE_PREFIX);
+    if (idx === 0) {
+        return {
+            file: undefined,
+            schema: ref.$ref.replace(SCHEMA_REFERENCE_PREFIX, ""),
+        };
+    } else if (idx > 0) {
+        const filePrefix = ref.$ref.substring(0, idx);
+        const splitFiles = filePrefix.split("/");
+        const parent = splitFiles[splitFiles.length - 1];
+        if (parent != null) {
+            return {
+                file: parent,
+                schema: ref.$ref.substring(idx).replace(SCHEMA_REFERENCE_PREFIX, ""),
+            };
+        }
     }
-    return ref.$ref.replace(SCHEMA_REFERENCE_PREFIX, "");
+    throw new Error(`Cannot get schema id from reference: ${ref.$ref}`);
 }
 
 export function convertSchema(
@@ -22,9 +41,7 @@ export function convertSchema(
 ): Schema {
     if (isReferenceObject(schema)) {
         const referenceSchema = Schema.reference({
-            // TODO(dsinghvi): references may contain files
-            file: undefined,
-            schema: getSchemaIdFromReference(schema),
+            ...getSchemaIdFromReference(schema),
             description: undefined,
         });
         if (wrapAsOptional) {

@@ -1,0 +1,99 @@
+openapi: 3.1.0
+
+info:
+  title: Products
+  description: >-
+    Banking products describes product offerings against which bank customers open new accounts.
+    The product describes the name, type, rates, and other descriptive data about the banking
+    products such as Basic Savings, Premiere Checking, 180 Day CD and other products.
+  version: 0.5.0
+  contact:
+    name: Apiture
+    url: 'https://developer.apiture.com/help/support/'
+    email: api@apiture.com
+  termsOfService: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+  license:
+    name: Apiture API License
+    url: 'https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf'
+x-apiture-namespace: bankingProducts
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Products
+    description: Banking Products
+
+paths: {}
+
+components:
+  securitySchemes:
+    apiKey:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/apiKey'
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+
+  schemas:
+    productType:
+      x-apiture-version: 2.0.0
+      title: Product Type
+      description: The type (or category) of bank account.
+      type: string
+      x-apiture-enum: productType
+      enum:
+        - savings
+        - checking
+        - cd
+        - ira
+        - loan
+        - creditCard
+
+    productReference:
+      title: Product Reference
+      x-apiture-version: 2.0.0
+      description: A reference to a banking product.
+      type: object
+      required:
+        - type
+        - coreType
+        - code
+        - label
+        - description
+      properties:
+        type:
+          description: The type of account.
+          $ref: '#/components/schemas/productType'
+        coreType:
+          description: >-
+            The account product type in the banking core.
+            For example, some cores may use `"D"` for a demand deposit (checking) account, some may use `"DDA"`.
+          type:  string
+          pattern: ^[A-Z0-9]{1,4}$
+          minLength: 1
+          maxLength: 4
+        code:
+          description: The product's product code which uniquely identifies the product from other
+            banking products. Codes are unique to the financial institution. For example,
+            different products with the same `type` and the same `coreType`
+            but different rates or other properties have different
+            product codes, such as `CD3M`, `CD6M`, 'CD3MHY', `CD6MHY`.
+          type: string
+          maxLength: 16
+          example: CD001
+          format: text
+        label:
+          description: A human-readable label for this banking product.
+          type: string
+          maxLength: 48
+          format: text
+        description:
+          description: A human-readable description of this banking product.
+          type: string
+          maxLength: 400
+          format: markdown
+      example:
+        type: cd
+        coreType: CD
+        code: 180D_CDA
+        label: 180 Day CD
+        description: Certificate of Deposit with a 180 day term

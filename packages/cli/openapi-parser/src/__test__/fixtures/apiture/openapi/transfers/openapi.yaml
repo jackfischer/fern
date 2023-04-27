@@ -1,0 +1,787 @@
+openapi: 3.1.0
+
+info:
+  title: Account to Account Transfers
+  description: >-
+    Schedule and manage account to account transfers.
+
+
+    When creating new simple transfers, the source and target accounts,
+    amount, and transfer schedule are required and the transfer is
+    scheduled to be processed on the scheduled date. Some financial institutions
+    support immediate transfers between local accounts scheduled on the current
+    day. Transfers to or from external accounts typically are processed after
+    the financial institution's ACH cut-off time but require several business
+    days.
+
+
+    Transfers have a [`state`](#schema-transferState) property which indicates
+    if the transfer is pending, pending approvals, scheduled (queued for processing),
+    processing, or processed.
+
+
+    Transfers support recurring schedules, such as repeating every week or every month.
+    Recurring transfers can also be variable transfers; they recur without
+    an amount. Occasional recurring transfers do not have a scheduled date.
+    Both of these situations result in transfers in a `pending` state. They remain pending
+    until a [`patchTransfer`](#op-patchTransfer) operation sets the amount and schedule.
+    Once a `pending` transfer has an amount and schedule, it becomes `scheduled`.
+  version: 0.13.1
+  contact:
+    name: Apiture
+    url: https://developer.apiture.com/help/support/
+    email: api@apiture.com
+  termsOfService: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+  license:
+    name: Apiture API License
+    url: https://developer.apiture.com/docs/Apiture-API-License-Agreement.pdf
+x-apiture-namespace: bankingTransfers
+
+servers:
+  - url: /banking
+
+tags:
+  - name: Transfers
+    description: Banking Transfers
+
+paths:
+  /transfers:
+    get:
+      summary: Return a collection of transfers
+      description: >-
+        Return a
+        [paginated](https://developer.apiture.com/docs/concepts/pagination)
+        collection of transfers. The
+        [nextPage_url](https://developer.apiture.com/docs/concepts/links) in the
+        response is a pagination link.
+      operationId: listTransfers
+      x-apiture-group: transfers
+      tags:
+        - Transfers
+      parameters:
+        - name: scheduledOn
+          in: query
+          description: >-
+            Return only transactions whose `schedule.scheduledOn` date is in this date
+            range. Excludes any transfers that do not have a `scheduledOn` date.
+            Dates ranges use dates expressed in `YYYY-MM-DD` [RFC
+            3339](https://tools.ietf.org/html/rfc3339) `date` format. Example
+            date ranges:
+            <ul>
+            <li> `2022-05-19` match only transfers scheduled on May 19, 2022.</li>
+            <li> `[2022-05-01,2022-06-01)` in May, 2022: on or after May 1, but _before_ June 1</li>
+            <li> `(2022-05-01,2022-06-01)` in May, 2022 (on or after May 1, but before June 1)</li>
+            <li> `[2022-05-09,]` on or after May 9, 2022</li>
+            <li> `(2022-05-09,)` after May 9, 2022</li>
+            <li> `[,2022-05-09]` on or before May 9, 2022</li>
+            <li> `(,2022-05-09)` before May 9, 2022</li>
+            </ul>
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/dateRange
+        - name: debitsOn
+          in: query
+          description: >-
+            Return only transactions whose `schedule.debitsOn` date (when the funds are debited
+            from the source account) is in this date range.
+            Excludes any transfers that do not have a `scheduledOn` date.
+            Dates ranges use dates expressed in `YYYY-MM-DD` [RFC
+            3339](https://tools.ietf.org/html/rfc3339) `date` format.
+            See the `scheduledOn` query parameter for examples.
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/dateRange
+        - name: creditsOn
+          in: query
+          description: >-
+            Return only transactions whose `schedule.creditsOn` (when the funds are credited
+            to  the target account) is in this date range.
+            Excludes any transfers that do not have a `scheduledOn` date.
+            Dates ranges use dates expressed in `YYYY-MM-DD` [RFC
+            3339](https://tools.ietf.org/html/rfc3339) `date` format.
+            See the `scheduledOn` query parameter for examples.
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/dateRange
+        - name: historical
+          in: query
+          description: >-
+            If `true`, list only historical (`state` is `processed`) transfers.
+            If `false`, list only transfers that have not yet finished processing.
+            If omitted, list all transfers.
+          schema:
+            type: boolean
+        - $ref: ../common/openapi.yaml#/components/parameters/startQueryParam
+        - $ref: ../common/openapi.yaml#/components/parameters/limitQueryParam
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transfers'
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '422':
+          description: >-
+            Unprocessable Entity. The request body and/or query parameters were
+            well formed but otherwise invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+            application/json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+      security:
+        - accessToken:
+            - banking/read
+    post:
+      summary: Create a new transfer
+      description: >-
+        Create a new transfer within the transfers collection.
+        If all the necessary properties are set, the transfer is queued
+        for processing. If the request omits the `schedule.scheduledOn` date,
+        the transfer remains pending/unscheduled until the user
+        sets it via the [`patchTransfer`](#op-patchTransfer) operation.
+
+
+        Note: This operation requires an identity challenge if the
+        financial institution requires the user to prove their identity
+        for some types of transfers. See the "Challenges API".
+      operationId: createTransfer
+      x-apiture-group: transfers
+      tags:
+        - Transfers
+      parameters:
+        - $ref: '../challenges/openapi.yaml#/components/parameters/challengeHeaderParam'
+      requestBody:
+        required: true
+        description: The data necessary to create a new transfer.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/newTransfer'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transfer'
+          headers:
+            Location:
+              description: The URI of the new transfer.
+              schema:
+                type: string
+                format: uri-reference
+                maxLength: 400
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: '#/components/responses/403Transfer'
+        '422':
+          $ref: '#/components/responses/422Transfer'
+      security:
+        - accessToken:
+            - moneyMovement/write
+  /transfers/{transferId}:
+    parameters:
+      - $ref: '#/components/parameters/transferIdPathParam'
+    get:
+      summary: Fetch a representation of this transfer
+      description: Return the JSON representation of this transfer resource.
+      operationId: getTransfer
+      x-apiture-group: transfers
+      tags:
+        - Transfers
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transfer'
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          $ref: '#/components/responses/404Transfer'
+      security:
+        - accessToken:
+            - banking/read
+    patch:
+      summary: Update this transfer
+      description: >-
+        Perform a partial update of this transfer as per [JSON Merge
+        Patch](https://datatracker.ietf.org/doc/html/rfc7396) format and
+        processing rules. Only fields in the request body are updated on the
+        resource; fields which are omitted are not updated.
+
+
+        Note: This operation requires an identity challenge if the
+        financial institution requires the user to prove their identity
+        for some types of transfers. See the "Challenges API".
+      operationId: patchTransfer
+      x-apiture-group: transfers
+      tags:
+        - Transfers
+      parameters:
+        - $ref: '../challenges/openapi.yaml#/components/parameters/challengeHeaderParam'
+      requestBody:
+        required: true
+        description: The fields to update within the transfer.
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/transferPatch'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/transferPatch'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/transfer'
+        '400':
+          $ref: ../common/openapi.yaml#/components/responses/400
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: '#/components/responses/403Transfer'
+        '404':
+          $ref: '#/components/responses/404Transfer'
+        '422':
+          $ref: '#/components/responses/422Transfer'
+      security:
+        - accessToken:
+            - moneyMovement/write
+
+    delete:
+      summary: Delete this transfer resource
+      description: Delete this transfer resource and any resources that are owned by it.
+        Only transfers that have not been processed may be deleted.
+      operationId: deleteTransfer
+      x-apiture-group: transfers
+      tags:
+        - Transfers
+      responses:
+        '204':
+          $ref: ../common/openapi.yaml#/components/responses/204
+        '401':
+          $ref: ../common/openapi.yaml#/components/responses/401
+        '403':
+          $ref: ../common/openapi.yaml#/components/responses/403
+        '404':
+          $ref: '#/components/responses/404Transfer'
+        '409':
+          description: >-
+            Conflict.
+          x-apiture-errors:
+            - cannotDeleteProcessedTransfers
+          content:
+            application/problem+json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+            application/json:
+              schema:
+                $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+      security:
+        - accessToken:
+            - moneyMovement/write
+
+components:
+  securitySchemes:
+    apiKey:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/apiKey'
+    accessToken:
+      $ref: '../common/openapi.yaml#/components/securitySchemes/accessToken'
+  parameters:
+    transferIdPathParam:
+      name: transferId
+      description: The unique identifier of this transfer. This is an opaque string.
+      in: path
+      schema:
+        $ref: ../common/openapi.yaml#/components/schemas/resourceId
+      required: true
+
+  responses:
+    403Transfer:
+      description: >-
+        Forbidden. The user's permissions do not allow the transfer.
+      x-apiture-errors:
+        - cannotTransferFrom
+        - cannotTransferTo
+      content:
+        application/problem+json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+        application/json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+
+    404Transfer:
+      description: >-
+        Not Found. There is no such transfer resource at the specified
+        `{transferId}`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+        application/json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+    422Transfer:
+      description: >-
+        Unprocessable Entity. The request body and/or query parameters were well
+        formed but otherwise invalid.
+      x-apiture-errors:
+        - invalidSourceAccountId
+        - invalidTargetAccountId
+        - externalToExternalTransferNotAllowed
+        - sameSourceAndTargetTransferAccounts
+        - nonPositiveAmount
+        - insufficientFundsForTransfer
+        - invalidTransferSchedule
+      content:
+        application/problem+json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+        application/json:
+          schema:
+            $ref: ../common/openapi.yaml#/components/schemas/problemResponse
+
+  schemas:
+    transferSchedule:
+      x-apiture-version: 2.1.0
+      title: Transfer Schedule
+      description: >-
+        The scheduled date when the transfer should be completed, the recurrence, if any, and other derived dates based on
+        the scheduled date.
+
+
+        For recurring transfer schedules, `endsOn`, `count`, and `amountLimit` are mutually exclusive.
+      type: object
+      required:
+        - frequency
+      properties:
+        scheduledOn:
+          description: >-
+            The date the the customer scheduled the transfer to occur
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) `date` format.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+        recurrenceType:
+          $ref: '../common/openapi.yaml#/components/schemas/transferRecurrenceType'
+        frequency:
+          $ref: '../common/openapi.yaml#/components/schemas/transferFrequency'
+        endsOn:
+          description: >-
+            The optional date when the recurring transfer schedule ends,
+            in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) date format.
+            Subsequent recurring transfers may be scheduled up to and including this date, but not after.
+            This property is ignored if `frequency` is `once`.
+          type: string
+          format: date
+          minLength: 10
+          maxLength: 10
+        count:
+          description: >-
+            For recurring schedules (`frequency` is not `once`), this is the total number of transfers to make,
+            including the first transfer.
+            This property is ignored if `frequency` is `once`.
+          type: integer
+          format: int32
+          default: 1
+          minimum: 1
+          maximum: 10000
+        amountLimit:
+          description: >-
+            For recurring schedules (`frequency` is not `once`), this is the total dollar amount limit
+            including the first transfer. No transfers are scheduled if they would exceed this amount.
+            This property is ignored if `frequency` is `once`.
+          $ref: '../common/openapi.yaml#/components/schemas/monetaryValue'
+          example: '1000.00'
+      examples:
+        - scheduledOn: '2026-06-28'
+          frequency: once
+        - scheduledOn: '2023-08-01'
+          frequency: monthly
+          recurrenceType: fixed
+          count: 9
+
+    transferItemSchedule:
+      x-apiture-version: 1.1.0
+      title: Transfer Item Schedule
+      description: >-
+        A transfer's schedule: when the transfer is scheduled,
+        its recurrence properties, and derived credit and debit dates.
+      allOf:
+        - $ref: '#/components/schemas/transferSchedule'
+        - type: object
+          properties:
+            debitsOn:
+              description: The effective date the transfer is scheduled to debit the source account,
+                in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) `date` format.
+                This is derived from the `scheduledOn` date, based on the financial institution's
+                transfer rules.
+              type: string
+              format: date
+              minLength: 10
+              maxLength: 10
+              readOnly: true
+            creditsOn:
+              description: The effective the transfer is scheduled to credit the target account,
+                in `YYYY-MM-DD` [RFC 3339](https://tools.ietf.org/html/rfc3339) `date` format.
+                This is derived from the `scheduledOn` date, based on the financial institution's
+                transfer rules.
+              format: date
+              type: string
+              minLength: 10
+              maxLength: 10
+              readOnly: true
+      examples:
+        # one-time transfer:
+        - scheduledOn: '2026-06-28'
+          creditsOn: '2026-06-26'
+          debitsOn: '2026-06-24'
+          frequency: once
+        # recurring transfer:
+        - scheduledOn: '2023-08-01'
+          frequency: monthly
+          recurrenceType: fixed
+          count: 9
+          creditsOn: '2023-08-01'
+          debitsOn: '2026-08-01'
+
+    transferAccountReference:
+      x-apiture-version: 2.1.0
+      title: Transfer Account Reference
+      description: A reference to a banking account used within an account to account transfer.
+        This object may be set from an account's `account.reference` object.
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          description: The unique ID of a banking account.
+          $ref: '../common/openapi.yaml#/components/schemas/resourceId'
+        label:
+          description: >-
+            The human-readable label for this account.
+            This is either the `nickname` (if assigned for the current customer),
+            or the `product.label` concatenated with the `maskedNumber`.
+          type: string
+          maxLength: 80
+          format: text
+          example: 'Checking *1008'
+        type:
+          description: The product type of the account.
+          $ref: '../products/openapi.yaml#/components/schemas/productType'
+        location:
+          description: Indicates where an account is held.
+          $ref: '../accounts/openapi.yaml#/components/schemas/accountLocation'
+      example:
+        id: e821ce54-c715
+        label: Premiere Checking *6789
+        type: checking
+        location: internal
+
+    transferFields:
+      x-apiture-version: 3.1.0
+      title: Transfer Fields
+      description: >-
+        Common fields of the transfer resource used to build other model
+        schemas.
+      type: object
+      x-apiture-fragment: true
+      properties:
+        amount:
+          description: The amount of money to transfer between accounts.
+          $ref: '../common/openapi.yaml#/components/schemas/monetaryValue'
+        sourceAccount:
+          description: The source account where the funds are withdrawn.
+          $ref: '#/components/schemas/transferAccountReference'
+        targetAccount:
+          description: The target account where the funds are deposited.
+          $ref: '#/components/schemas/transferAccountReference'
+        memo:
+          description: A customer-defined memo to describe the transfer.
+          type: string
+          maxLength: 128
+          format: text
+
+    newTransfer:
+      x-apiture-version: 3.1.0
+      title: New Transfer
+      description: Representation used to create a new transfer.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/transferFields'
+        - type: object
+          properties:
+            schedule:
+              description: When the transfer should occur and any recurrence.
+              $ref: '#/components/schemas/transferSchedule'
+      required:
+        - schedule
+        - amount
+        - sourceAccount
+        - targetAccount
+      example:
+        amount: '275.00'
+        memo: Cover check for car repair
+        sourceAccount:
+          id: bd9b7af2-6f9b
+          location: internal
+        targetAccount:
+          id: 88b1ca3e-d0f3
+          location: internal
+        schedule:
+          scheduledOn: '2022-06-28'
+          frequency: once
+
+    transferPatch:
+      x-apiture-version: 3.2.0
+      title: Transfer Patch Request
+      description: >-
+        Representation used to patch an existing transfer using the [JSON Merge
+        Patch](https://datatracker.ietf.org/doc/html/rfc7396) format and
+        processing rules.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/transferFields'
+        - type: object
+          properties:
+            schedule:
+              description: When the transfer should occur and any recurrence.
+              $ref: '#/components/schemas/transferSchedule'
+      example:
+        amount: '275.00'
+        targetAccount:
+          id: 88b1ca3e-d0f3
+        schedule:
+          scheduledOn: '2022-06-28'
+
+    transferState:
+      x-apiture-version: 2.0.0
+      title: Transfer State
+      description: The state of a transfer resource.
+      type: string
+      x-apiture-enum: transferState
+      enum:
+        - unscheduled
+        - pendingApproval
+        - scheduled
+        - processing
+        - processed
+        - failed
+        - other
+
+    transferItem:
+      x-apiture-version: 4.1.0
+      title: Transfer Item
+      description: >-
+        Summary representation of a transfer resource in transfers collections.
+        To fetch the full representation of this transfer, use the
+        [`getTransfer`](#op-getTransfer) operation, passing this item's `id`
+        field as the `transferId` path parameter.
+      allOf:
+        - $ref: '#/components/schemas/transferFields'
+        - $ref: ../common/openapi.yaml#/components/schemas/timestampFields
+        - type: object
+          required:
+            - id
+            - schedule
+            - amount
+            - sourceAccount
+            - targetAccount
+            - state
+          properties:
+            id:
+              description: >-
+                The unique identifier for this transfer resource. This is an
+                immutable opaque string.
+              allOf:
+                - $ref: >-
+                    ../common/openapi.yaml#/components/schemas/readOnlyResourceId
+            schedule:
+              description: When the transfer should occur and any recurrence.
+              $ref: '#/components/schemas/transferItemSchedule'
+            state:
+              description: The state of this transfer resource.
+              allOf:
+                - $ref: '#/components/schemas/transferState'
+              readOnly: true
+            processedAt:
+              description: The date/time the transfer was processed.
+              $ref: '../common/openapi.yaml#/components/schemas/readOnlyTimestamp'
+            updatedBy:
+              description: The full name of the banking customer who last updated the transfer.
+              type: string
+              format: text
+              maxLength: 40
+
+      example:
+        amount: '275.00'
+        sourceAccount:
+          id: bd9b7af2-6f9b
+        targetAccount:
+          id: 88b1ca3e-d0f3
+          label: Personal Savings *4567
+          type: savings
+        schedule:
+          scheduledOn: '2026-06-28'
+          frequency: once
+          creditsOn: '2026-06-26'
+          debitsOn: '2026-06-24'
+        processedAt: '2026-06-26T021:00:00.000Z'
+        updatedBy: James Bond
+
+    transfer:
+      x-apiture-version: 4.1.0
+      title: Transfer
+      description: Representation of a transfer resource.
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractBody
+        - $ref: '#/components/schemas/transferItem'
+      example:
+        id: 0399abed-fd3d
+        amount: '275.00'
+        memo: Cover check for car repair
+        sourceAccount:
+          id: bd9b7af2-6f9b
+          label: Premiere Checking *6789
+          type: checking
+          location: internal
+        targetAccount:
+          id: 88b1ca3e-d0f3
+          label: Personal Savings *4567
+          type: savings
+          location: internal
+        schedule:
+          scheduledOn: '2026-06-28'
+          frequency: once
+          creditsOn: '2026-06-26'
+          debitsOn: '2026-06-24'
+
+    transfers:
+      x-apiture-version: 4.1.0
+      title: Transfer Collection
+      description: >-
+        Collection of transfers. The items in the collection are ordered in the
+        `items` array. The response object may contain the `nextPage_url`
+        pagination link..
+      allOf:
+        - $ref: ../common/openapi.yaml#/components/schemas/abstractPagedBody
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              description: An array containing a page of transfer items.
+              type: array
+              maxItems: 1000
+              items:
+                $ref: '#/components/schemas/transferItem'
+            count:
+              description: The number of transfers that meet the filters in the `listTransfers` operation.
+                This is optional and only included if the service can calculate it efficiently.
+              type: integer
+              format: int32
+              minimum: 0
+              maximum: 1000000
+      example:
+        start: d1b48af913464aa49fcb07065dcc0616
+        limit: 10
+        nextPage_url: >-
+          https://api.apiture.com/transfers/transfers?start=6117a4dcefb841cab7316cef1ac8b58c&limit=10
+        items:
+          - id: 0399abed-fd3d
+            amount: '275.00'
+            memo: Cover check for car repair
+            state: processed
+            sourceAccount:
+              id: bd9b7af2-6f9b
+              label: Premiere Checking *6789
+              type: checking
+              location: internal
+            targetAccount:
+              id: 88b1ca3e-d0f3
+              label: Personal Savings *4567
+              type: savings
+              location: internal
+            schedule:
+              scheduledOn: '2026-06-28'
+              frequency: once
+              creditsOn: '2026-06-26'
+              debitsOn: '2026-06-24'
+            processedAt: '2022-06-28T021:00:00.000Z'
+          - id: d62c0701-0d74
+            amount: '100.00'
+            state: scheduled
+            memo: school expenses
+            sourceAccount:
+              id: bd9b7af2-6f9b
+              label: Checking *6789
+              type: checking
+              location: internal
+            targetAccount:
+              id: c8396f59-624b
+              label: Checking *3456
+              type: checking
+              location: internal
+            schedule:
+              scheduledOn: '2023-08-01'
+              frequency: monthly
+              recurrenceType: fixed
+              count: 9
+              creditsOn: '2023-08-01'
+              debitsOn: '2026-08-01'
+
+  x-apiture-errors:
+    cannotTransferFrom:
+      description: The customer does not have `transferFrom` entitlement on the source account.
+      remediation: Choose a source account that allows transfers from it.
+    cannotTransferTo:
+      description: The customer does not have `transferTo` entitlement on the target account.
+      remediation: Choose a target account that allows transfers to it.
+    invalidSourceAccountId:
+      description: The named `sourceAccountId` does not exist or the user is not entitled to access the account.
+      remediation: Pass the `id` of an existing account the caller has access to.
+    invalidTargetAccountId:
+      description: The named `targetAccountId` does not exist or the user is not entitled to access the account.
+      remediation: Pass the `id` of an existing account the caller has access to.
+    sameSourceAndTargetTransferAccounts:
+      description: The source and target account are the same.
+      remediation: Choose different source and target accounts.
+    externalToExternalTransferNotAllowed:
+      description: Transfers from an external account to another external is not allowed.
+      remediation: At least one of the source or target accounts must be an internal account held at the financial institution.
+    nonPositiveAmount:
+      description: The transfer amount may not be 0.00.
+      remediation: Set the transfer amount to a positive number.
+    insufficientFundsForTransfer:
+      description: The source account has insufficient funds.
+      remediation: Reduce the transfer amount to less than the available balance.
+    invalidTransferSchedule:
+      description: The transfer schedule is invalid.
+      remediation: Choose a date that is not in the past or past the cutoff time.
+    cannotDeleteProcessedTransfers:
+      description: The delete operation is only allowed for transfers which have not begun processing.
+      remediation: Select a pending or scheduled transfer.
+
+x-apiture-traits:
+  - resource:
+      name: transfer
+      applied: true
+  - security:
+      applied: true
