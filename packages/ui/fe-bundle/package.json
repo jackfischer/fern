@@ -35,7 +35,9 @@
     "start:fern-dev": "yarn compile && yarn env:fern-dev next start",
     "start:fern-prod": "yarn compile && yarn env:fern-prod next start",
     "lint:fern-dev": "yarn compile && yarn env:fern-dev next lint",
-    "lint:fern-prod": "yarn compile && yarn env:fern-prod next lint"
+    "lint:fern-prod": "yarn compile && yarn env:fern-prod next lint",
+    "export:fern-dev": "yarn compile && yarn env:fern-dev next export",
+    "export:fern-prod": "yarn compile && yarn env:fern-prod next export"
   },
   "dependencies": {
     "@fern-api/ui": "workspace:*",

@@ -65,6 +65,27 @@ export class UrlSlugTree {
         return neighbors;
     }
 
+    public getAllSlugsExpensive(root = this.root): string[] {
+        return Object.values(root).reduce<string[]>((acc, node) => {
+            acc.push(node.slug);
+            switch (node.type) {
+                case "api":
+                case "apiSubpackage":
+                case "section":
+                    acc.push(...this.getAllSlugsExpensive(node.children));
+                    break;
+                case "clientLibraries":
+                case "endpoint":
+                case "page":
+                case "topLevelEndpoint":
+                    break;
+                default:
+                    assertNever(node);
+            }
+            return acc;
+        }, []);
+    }
+
     private resolveSlugsRecursive({
         slugs,
         children,

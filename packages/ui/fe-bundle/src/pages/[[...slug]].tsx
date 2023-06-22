@@ -1,7 +1,7 @@
-import { App } from "@fern-api/ui";
+import { App, UrlSlugTree } from "@fern-api/ui";
 import { FernRegistryClient } from "@fern-fern/registry-browser";
 import * as FernRegistryDocsRead from "@fern-fern/registry-browser/api/resources/docs/resources/v2/resources/read";
-import { GetServerSideProps } from "next";
+import { GetStaticPaths, GetStaticProps } from "next";
 import { Inter } from "next/font/google";
 import Head from "next/head";
 
@@ -32,6 +32,7 @@ export default function Docs({ docs, pathname }: Docs.Props): JSX.Element {
     );
 }
 
+/*
 export const getServerSideProps: GetServerSideProps<Docs.Props> = async (context) => {
     const host = context.req.headers["x-fern-host"] ?? context.req.headers.host;
     if (host == null) {
@@ -53,5 +54,52 @@ export const getServerSideProps: GetServerSideProps<Docs.Props> = async (context
             docs: docs.body,
             pathname: context.query.slug != null ? (context.query.slug as string[]).join("/") : "",
         },
+    };
+};
+*/
+
+export const getStaticProps: GetStaticProps<Docs.Props> = async (context) => {
+    const host = "candid.docs.dev.buildwithfern.com";
+
+    const docs = await REGISTRY_SERVICE.docs.v2.read.getDocsForUrl({
+        url: host,
+    });
+
+    if (!docs.ok) {
+        // eslint-disable-next-line no-console
+        console.error(docs.error);
+        return { notFound: true };
+    }
+
+    return {
+        props: {
+            docs: docs.body,
+            pathname: context.params?.slug != null ? (context.params.slug as string[]).join("/") : "",
+        },
+    };
+};
+
+export const getStaticPaths: GetStaticPaths = async () => {
+    const host = "candid.docs.dev.buildwithfern.com";
+
+    const docs = await REGISTRY_SERVICE.docs.v2.read.getDocsForUrl({
+        url: host,
+    });
+
+    if (!docs.ok) {
+        // eslint-disable-next-line no-console
+        console.error(docs.error);
+        throw new Error("Failed to load docs");
+    }
+
+    const urlSlugTree = new UrlSlugTree(docs.body.definition);
+
+    return {
+        paths: urlSlugTree.getAllSlugsExpensive().map((slug) => ({
+            params: {
+                slug: slug.split("/"),
+            },
+        })),
+        fallback: "blocking",
     };
 };
